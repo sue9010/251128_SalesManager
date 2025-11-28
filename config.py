@@ -1,9 +1,12 @@
 import os
 
 
+# ==========================================
+# [Config] 상수 및 기본 설정값 관리
+# ==========================================
 class Config:
     # ---------------------------------------------------------
-    # [앱 설정] 
+    # [앱 설정 파일 경로] 
     # ---------------------------------------------------------
     USER_HOME = os.path.expanduser("~")
     APP_DIR_NAME = ".SalesManager"
@@ -12,29 +15,37 @@ class Config:
     if not os.path.exists(APP_DIR):
         try:
             os.makedirs(APP_DIR)
-        except OSError:
-            pass
+        except OSError as e:
+            print(f"설정 폴더 생성 실패: {e}")
 
     CONFIG_FILENAME = os.path.join(APP_DIR, "config.json")
     APP_VERSION = "1.0.0"
     
-    # [보안] 관리자/개발자 모드 비밀번호
+    # [보안] 관리자/개발자 모드 비밀번호 (실무에 맞게 변경하세요)
     DEV_PASSWORD = "admin" 
 
     # ---------------------------------------------------------
-    # [경로 설정]
+    # [업무용 기본 경로 설정]
     # ---------------------------------------------------------
-    # 매크로 이슈 방지를 위해 기본 확장자는 .xlsx로 설정 (필요시 변경 가능)
+    # 매크로 이슈 방지를 위해 기본 확장자는 .xlsx로 설정
     DEFAULT_EXCEL_PATH = r"\\cox_biz\business\SalesManager\SalesList.xlsx"
     
     # 기본 첨부파일 루트 폴더
     DEFAULT_ATTACHMENT_ROOT = r"\\cox_biz\business\SalesManager"
     
+    if not os.path.exists(DEFAULT_ATTACHMENT_ROOT):
+        try:
+            # 경로가 없으면 에러 방지를 위해 임시로 현재 폴더 사용하거나 생성 시도
+            # os.makedirs(DEFAULT_ATTACHMENT_ROOT) 
+            pass
+        except OSError:
+            pass 
+
     # ---------------------------------------------------------
-    # [시트 및 컬럼 정의]
+    # [시트 및 컬럼 설정]
     # ---------------------------------------------------------
     
-    # 시트 이름
+    # [시트 이름 정의]
     SHEET_CLIENTS = "Customers"
     SHEET_DATA = "Data"
     SHEET_LOG = "Log"
@@ -49,10 +60,10 @@ class Config:
         "운송계정", "운송방법", "특이사항", "사업자등록증경로"
     ]
 
-    # 2. 영업 데이터 시트 헤더 (환율 추가됨)
+    # 2. 영업 데이터 시트 헤더 (수정됨: 프로젝트명 추가)
     DATA_COLUMNS = [
         # [기본 정보]
-        "관리번호", "구분", "업체명", "품목명", "모델명", "Description",
+        "관리번호", "구분", "업체명", "프로젝트명", "품목명", "모델명", "Description",
         
         # [금액 정보]
         "수량", "단가", "통화", "환율", "공급가액", "세액", "합계금액", 
@@ -66,16 +77,16 @@ class Config:
         "Status", "견적서경로", "발주서경로", "주문요청사항", "비고"
     ]
 
-    # 로그/메모 관련 헤더
+    # 로그 관련
     LOG_COLUMNS = ["일시", "작업자", "구분", "상세내용"]
-    MEMO_COLUMNS = ["관리번호", "일시", "작업자", "내용", "확인"] # PC정보 제외 등 간소화 가능
+    MEMO_COLUMNS = ["관리번호", "일시", "작업자", "내용", "확인"]
     MEMO_LOG_COLUMNS = ["일시", "작업자", "구분", "관리번호", "내용"]
 
-    # [화면 표시 설정] 테이블 뷰(리스트)에 보여줄 핵심 컬럼
+    # 화면 표시 설정 (테이블 뷰)
     DISPLAY_COLUMNS = [
         "관리번호", "구분", "업체명", "모델명", 
         "수량", "합계금액", "출고예정일", "Status"
     ]
     
-    # 검색 기능이 작동할 컬럼들
-    SEARCH_TARGET_COLS = ["관리번호", "업체명", "모델명", "품목명", "계산서번호", "수출신고번호"]
+    # 검색 대상 컬럼 (수정됨: 프로젝트명 추가)
+    SEARCH_TARGET_COLS = ["관리번호", "업체명", "프로젝트명", "모델명", "품목명", "계산서번호", "수출신고번호"]

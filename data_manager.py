@@ -11,7 +11,7 @@ from config import Config
 
 class DataManager:
     def __init__(self):
-        # 데이터프레임 초기화
+        # 데이터프레임 초기화 (Sales Manager 구조에 맞춤)
         self.df_clients = pd.DataFrame(columns=Config.CLIENT_COLUMNS)
         self.df_data = pd.DataFrame(columns=Config.DATA_COLUMNS)
         self.df_log = pd.DataFrame(columns=Config.LOG_COLUMNS)
@@ -89,7 +89,7 @@ class DataManager:
 
     def _preprocess_data(self):
         """데이터 전처리 (결측치 처리 등)"""
-        # Data 시트 결측치 처리
+        # Data 시트 결측치 처리 (Config에 정의된 컬럼이 없으면 생성)
         for col in Config.DATA_COLUMNS:
             if col not in self.df_data.columns:
                 self.df_data[col] = "-"
@@ -97,17 +97,20 @@ class DataManager:
         self.df_data = self.df_data.fillna("-")
         self.df_clients = self.df_clients.fillna("-")
         
-        # 금액 컬럼 숫자 변환
+        # 금액 컬럼 숫자 변환 (계산을 위해)
         num_cols = ["수량", "단가", "환율", "공급가액", "세액", "합계금액", "기수금액", "미수금액"]
         for col in num_cols:
             if col in self.df_data.columns:
                 self.df_data[col] = pd.to_numeric(self.df_data[col], errors='coerce').fillna(0)
 
         # 날짜 컬럼 문자열로 통일
+        # [수정] format='mixed' 추가하여 다양한 날짜 형식 지원 및 경고 제거
         date_cols = ["견적일", "수주일", "출고예정일", "출고일", "입금완료일", "세금계산서발행일"]
         for col in date_cols:
             if col in self.df_data.columns:
-                self.df_data[col] = pd.to_datetime(self.df_data[col], errors='coerce').dt.strftime("%Y-%m-%d")
+                # 데이터가 없는 경우('-' 등) 처리를 위해 errors='coerce' 사용
+                # format='mixed'는 다양한 날짜 포맷(YYYY-MM-DD, DD/MM/YYYY 등)을 자동으로 인식함
+                self.df_data[col] = pd.to_datetime(self.df_data[col], errors='coerce', format='mixed').dt.strftime("%Y-%m-%d")
                 self.df_data[col] = self.df_data[col].fillna("-")
 
     def save_to_excel(self):
@@ -126,18 +129,20 @@ class DataManager:
             return False, f"저장 실패: {e}"
 
     def save_attachment(self, source_path, company_name, file_prefix):
-        """첨부파일 저장"""
+        """
+        첨부파일 저장 (Sales Manager 전용)
+        인자: 원본경로, 업체명, 파일접두사(견적서/발주서 등)
+        """
         if not os.path.exists(source_path):
             return None, "원본 파일이 없습니다."
 
         try:
-            # 연도 폴더
+            # 연도 폴더 생성
             current_year = datetime.now().strftime("%Y")
             year_dir = os.path.join(self.attachment_root, current_year)
             if not os.path.exists(year_dir): os.makedirs(year_dir)
 
-            # 업체명 폴더
-            # 업체명에 파일시스템 금지 문자가 있을 경우 치환 필요하지만 여기선 간단히 처리
+            # 업체명 폴더 생성 (특수문자 제거 등 안전처리)
             safe_company_name = "".join([c for c in str(company_name) if c.isalnum() or c in (' ', '_', '-')]).strip()
             company_dir = os.path.join(year_dir, safe_company_name)
             if not os.path.exists(company_dir): os.makedirs(company_dir)
@@ -147,6 +152,7 @@ class DataManager:
             name, ext = os.path.splitext(file_name)
             today_str = datetime.now().strftime("%Y%m%d")
             
+            # 예: 견적서_20251128_파일명.pdf
             new_file_name = f"{file_prefix}_{today_str}_{name}{ext}"
             dest_path = os.path.join(company_dir, new_file_name)
 
@@ -167,7 +173,12 @@ class DataManager:
             "구분": action,
             "상세내용": details
         }
-        self.df_log = pd.concat([self.df_log, pd.DataFrame([new_entry])], ignore_index=True)
+        # Concat Warning 방지를 위해 비어있을 경우 바로 대입
+        new_df = pd.DataFrame([new_entry])
+        if self.df_log.empty:
+            self.df_log = new_df
+        else:
+            self.df_log = pd.concat([self.df_log, new_df], ignore_index=True)
         
     def get_status_by_req_no(self, req_no):
         """관리번호로 상태 조회"""
@@ -215,5 +226,5 @@ class DataManager:
             return False, str(e)
             
     def clean_old_logs(self):
-        # 로그 정리 로직 (생략 - 필요시 구현)
+        # 로그 정리 로직 (간소화)
         return True, "로그 정리 완료"

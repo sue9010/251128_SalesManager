@@ -14,7 +14,6 @@ class OrderView(ctk.CTkFrame):
         self.dm = data_manager
         self.pm = popup_manager
 
-        # 주문 관리용 컬럼 (납품 예정일 중요)
         self.display_cols = ["관리번호", "업체명", "모델명", "수량", "합계금액", "수주일", "출고예정일", "Status"]
         
         self.create_widgets()
@@ -22,7 +21,6 @@ class OrderView(ctk.CTkFrame):
         self.refresh_data()
 
     def create_widgets(self):
-        # 1. 상단 툴바
         toolbar = ctk.CTkFrame(self, height=50, fg_color="transparent")
         toolbar.pack(fill="x", padx=20, pady=(20, 10))
 
@@ -35,10 +33,13 @@ class OrderView(ctk.CTkFrame):
         ctk.CTkButton(toolbar, text="검색", width=60, command=self.refresh_data, 
                       fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="left")
 
+        # [신규] 버튼 추가됨
+        ctk.CTkButton(toolbar, text="+ 신규 주문", width=100, command=self.open_add_popup,
+                      fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"]).pack(side="right")
+
         ctk.CTkButton(toolbar, text="새로고침", width=80, command=self.refresh_data,
                       fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="right", padx=(0, 10))
 
-        # 2. 리스트
         tree_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"], corner_radius=10)
         tree_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
 
@@ -84,13 +85,11 @@ class OrderView(ctk.CTkFrame):
 
         keyword = self.entry_search.get().strip().lower()
         
-        # '주문' 또는 '생산중' 상태인 항목 표시
         target_status = ["주문", "생산중"]
         target_df = df[df["Status"].isin(target_status)]
         
         if target_df.empty: return
 
-        # 최신 수주일 순
         target_df = target_df.sort_values(by="수주일", ascending=False)
 
         for _, row in target_df.iterrows():
@@ -120,6 +119,10 @@ class OrderView(ctk.CTkFrame):
             ]
             self.tree.insert("", "end", values=values)
 
+    # [신규] 주문 등록 팝업 호출
+    def open_add_popup(self):
+        self.pm.open_quote_popup(None, default_status="주문")
+
     def on_double_click(self, event):
         self.on_edit()
 
@@ -134,7 +137,8 @@ class OrderView(ctk.CTkFrame):
         if not selected: return
         item = self.tree.item(selected[0])
         mgmt_no = item["values"][0]
-        self.pm.open_quote_popup(mgmt_no) # 견적/주문 팝업 재사용
+        # 수정 시에는 기존 상태를 유지하므로 default_status는 중요하지 않음 (하지만 명시 가능)
+        self.pm.open_quote_popup(mgmt_no) 
 
     def on_start_production(self):
         self._update_status("생산중", "생산/준비 단계로 변경되었습니다.")
@@ -148,18 +152,13 @@ class OrderView(ctk.CTkFrame):
         
         item = self.tree.item(selected[0])
         mgmt_no = item["values"][0]
-        model = item["values"][2]
         
-        # 특정 행(관리번호+모델명)만 업데이트
-        # 주의: 관리번호 내 모든 품목을 업데이트할지, 선택한 품목만 할지 결정 필요
-        # 여기서는 관리번호에 해당하는 '모든' 품목을 일괄 변경 (주문 단위 처리)
         if messagebox.askyesno("상태 변경", f"관리번호 [{mgmt_no}]의 상태를 '{new_status}'(으)로 변경하시겠습니까?"):
             df = self.dm.df_data
             mask = df["관리번호"] == mgmt_no
             if mask.any():
                 self.dm.df_data.loc[mask, "Status"] = new_status
                 
-                # 출고예정일 입력 (생산중으로 갈 때)
                 if new_status == "생산중":
                     date_str = simpledialog.askstring("일정 입력", "출고예정일을 입력하세요 (YYYY-MM-DD):", parent=self)
                     if date_str:
