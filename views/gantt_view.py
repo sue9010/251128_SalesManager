@@ -42,12 +42,13 @@ class GanttView(ctk.CTkFrame):
         if df.empty: return
 
         # 날짜 데이터 전처리
-        # 시작일: 수주일 (없으면 견적일)
-        df['start'] = pd.to_datetime(df['수주일'], errors='coerce')
-        df['start'] = df['start'].fillna(pd.to_datetime(df['견적일'], errors='coerce'))
+        # [수정] format='mixed' 추가하여 경고 해결
+        df['start'] = pd.to_datetime(df['수주일'], errors='coerce', format='mixed')
+        # 수주일이 없으면 견적일로 대체
+        df['start'] = df['start'].fillna(pd.to_datetime(df['견적일'], errors='coerce', format='mixed'))
         
-        # 종료일: 출고예정일 (없으면 시작일 + 3일)
-        df['end'] = pd.to_datetime(df['출고예정일'], errors='coerce')
+        # [수정] format='mixed' 추가
+        df['end'] = pd.to_datetime(df['출고예정일'], errors='coerce', format='mixed')
         
         # 유효한 날짜가 있는 데이터만 필터링 (완료/취소 제외하고 진행중인 것 위주)
         mask = df['start'].notna() & (~df['Status'].isin(['완료', '취소', '보류']))

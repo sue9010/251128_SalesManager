@@ -18,15 +18,14 @@ class PopupManager:
         win = ClientPopup(self.parent, self.dm, self.refresh_callback, client_name)
 
     def open_quote_popup(self, mgmt_no=None, default_status="견적"):
-        """
-        견적/주문 등록 팝업 열기
-        - mgmt_no: 수정할 관리번호 (None이면 신규)
-        - default_status: 신규 등록 시 초기 상태 ('견적' 또는 '주문')
-        """
         win = QuotePopup(self.parent, self.dm, self.refresh_callback, mgmt_no, default_status)
 
-    def open_delivery_popup(self, row_index):
-        win = DeliveryPopup(self.parent, self.dm, self.refresh_callback, row_index)
+    def open_delivery_popup(self, row_indices):
+        """
+        납품 처리 팝업 열기
+        - row_indices: 선택된 행의 인덱스 리스트 (int list)
+        """
+        win = DeliveryPopup(self.parent, self.dm, self.refresh_callback, row_indices)
 
     def open_payment_popup(self, row_index):
         win = PaymentPopup(self.parent, self.dm, self.refresh_callback, row_index)
