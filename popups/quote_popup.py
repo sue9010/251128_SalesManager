@@ -10,6 +10,108 @@ from styles import COLORS, FONT_FAMILY, FONTS
 from export_manager import ExportManager
 
 
+class AutocompleteEntry(ctk.CTkEntry):
+    def __init__(self, master, completevalues=None, command=None, **kwargs):
+        super().__init__(master, **kwargs)
+        self.completevalues = completevalues or []
+        self.command = command
+        self.listbox_window = None
+        self.listbox = None
+        
+        self.bind("<KeyRelease>", self._on_key_release)
+        self.bind("<Down>", self._on_down)
+        self.bind("<FocusOut>", self._on_focus_out)
+
+    def update_values(self, values):
+        self.completevalues = values
+
+    def _on_key_release(self, event):
+        if event.keysym in ["Up", "Down", "Return", "Escape", "Tab"]: return
+        self._update_listbox()
+
+    def _update_listbox(self):
+        typed = self.get()
+        if not typed:
+            data = self.completevalues
+        else:
+            data = [v for v in self.completevalues if typed.lower() in v.lower()]
+            
+        if not data:
+            self._close_listbox()
+            return
+            
+        if self.listbox_window is None:
+            self.listbox_window = tk.Toplevel(self)
+            self.listbox_window.wm_overrideredirect(True)
+            self.listbox_window.attributes("-topmost", True)
+            
+            self.listbox = tk.Listbox(
+                self.listbox_window, 
+                font=(FONT_FAMILY, 11), 
+                height=6, 
+                selectmode="browse",
+                bg=COLORS["bg_medium"][1] if ctk.get_appearance_mode() == "Dark" else COLORS["bg_medium"][0],
+                fg=COLORS["text"][1] if ctk.get_appearance_mode() == "Dark" else COLORS["text"][0],
+                selectbackground=COLORS["primary"][1] if ctk.get_appearance_mode() == "Dark" else COLORS["primary"][0],
+                selectforeground="white",
+                relief="flat",
+                borderwidth=1
+            )
+            self.listbox.pack(fill="both", expand=True)
+            
+            self.listbox.bind("<<ListboxSelect>>", self._on_select)
+            self.listbox.bind("<Return>", self._on_select)
+            self.listbox.bind("<Right>", self._on_select)
+            self.listbox.bind("<Escape>", lambda e: self._close_listbox())
+            
+        x = self.winfo_rootx()
+        y = self.winfo_rooty() + self.winfo_height() + 2
+        w = self.winfo_width()
+        
+        h = min(len(data), 8) * 22 
+        self.listbox_window.geometry(f"{w}x{h}+{x}+{y}")
+        
+        self.listbox.delete(0, "end")
+        for item in data:
+            self.listbox.insert("end", item)
+
+    def _on_down(self, event):
+        if self.listbox_window:
+            self.listbox.focus_set()
+            self.listbox.selection_set(0)
+            
+    def _on_select(self, event):
+        if not self.listbox: return
+        try:
+            selection = self.listbox.curselection()
+            if selection:
+                value = self.listbox.get(selection[0])
+                self.delete(0, "end")
+                self.insert(0, value)
+                self._close_listbox()
+                if self.command:
+                    self.command(value)
+        except: pass
+        
+    def _close_listbox(self):
+        if self.listbox_window:
+            self.listbox_window.destroy()
+            self.listbox_window = None
+            self.listbox = None
+            
+    def _on_focus_out(self, event):
+        self.after(150, self._check_focus)
+        
+    def _check_focus(self):
+        if self.listbox_window:
+            try:
+                focus_widget = self.winfo_toplevel().focus_get()
+                if focus_widget != self.listbox:
+                    self._close_listbox()
+            except:
+                self._close_listbox()
+
+
 class QuotePopup(ctk.CTkToplevel):
     def __init__(self, parent, data_manager, refresh_callback, mgmt_no=None, default_status="견적"):
         super().__init__(parent)
@@ -63,17 +165,15 @@ class QuotePopup(ctk.CTkToplevel):
         self.combo_type.grid(row=0, column=5, padx=5, sticky="w")
         self.combo_type.set("내수")
 
-        # [신규] 상태 변경 콤보박스
         ctk.CTkLabel(top_frame, text="상태", font=FONTS["main_bold"]).grid(row=0, column=6, padx=5, sticky="w")
         self.combo_status = ctk.CTkComboBox(top_frame, values=["견적", "주문", "생산중", "납품대기", "납품완료/입금대기", "납품대기/입금완료", "완료", "취소", "보류"], width=120, font=FONTS["main"])
         self.combo_status.grid(row=0, column=7, padx=5, sticky="w")
         self.combo_status.set(self.default_status)
 
         ctk.CTkLabel(top_frame, text="고객사", font=FONTS["main_bold"]).grid(row=1, column=0, padx=5, pady=10, sticky="w")
-        self.combo_client = ctk.CTkComboBox(top_frame, width=200, font=FONTS["main"], command=self.on_client_select)
-        self.combo_client.grid(row=1, column=1, padx=5, pady=10, sticky="w")
-        try: self.combo_client._entry.bind("<KeyRelease>", self.on_client_typing)
-        except: pass
+        
+        self.entry_client = AutocompleteEntry(top_frame, width=200, font=FONTS["main"], command=self.on_client_select)
+        self.entry_client.grid(row=1, column=1, padx=5, pady=10, sticky="w")
 
         ctk.CTkLabel(top_frame, text="통화", font=FONTS["main_bold"]).grid(row=1, column=2, padx=5, pady=10, sticky="w")
         self.combo_currency = ctk.CTkComboBox(top_frame, values=["KRW", "USD", "EUR", "CNY", "JPY"], width=100, font=FONTS["main"], command=self.on_currency_change)
@@ -134,14 +234,6 @@ class QuotePopup(ctk.CTkToplevel):
         self.entry_note = ctk.CTkEntry(input_grid, width=300)
         self.entry_note.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
         
-        file_label_text = "발주서 파일:" if self.default_status == "주문" else "견적서 파일:"
-        ctk.CTkLabel(input_grid, text=file_label_text, font=FONTS["main"]).grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        file_box = ctk.CTkFrame(input_grid, fg_color="transparent")
-        file_box.grid(row=1, column=1, columnspan=3, sticky="ew")
-        self.entry_file = ctk.CTkEntry(file_box, width=400)
-        self.entry_file.pack(side="left", fill="x", expand=True, padx=5)
-        ctk.CTkButton(file_box, text="찾기", width=60, command=self.browse_file, fg_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="left", padx=5)
-
         btn_frame = ctk.CTkFrame(self, fg_color="transparent", height=50)
         btn_frame.pack(fill="x", padx=20, pady=20, side="bottom")
 
@@ -160,14 +252,7 @@ class QuotePopup(ctk.CTkToplevel):
 
     def load_clients(self):
         self.all_clients = self.dm.df_clients["업체명"].unique().tolist()
-        self.combo_client.configure(values=self.all_clients)
-
-    def on_client_typing(self, event):
-        typed = self.combo_client.get()
-        if typed == "": self.combo_client.configure(values=self.all_clients)
-        else:
-            filtered = [c for c in self.all_clients if typed.lower() in c.lower()]
-            self.combo_client.configure(values=filtered)
+        self.entry_client.update_values(self.all_clients)
 
     def on_client_select(self, client_name):
         df = self.dm.df_clients
@@ -323,16 +408,7 @@ class QuotePopup(ctk.CTkToplevel):
         self.lbl_total_qty.configure(text=f"총 수량: {total_qty:,.0f}")
         self.lbl_total_amt.configure(text=f"총 합계금액: {total_amt:,.0f}")
 
-    def browse_file(self):
-        self.attributes("-topmost", False)
-        path = filedialog.askopenfilename()
-        self.attributes("-topmost", True)
-        if path:
-            self.entry_file.delete(0, "end")
-            self.entry_file.insert(0, path)
-
     def load_data(self):
-        # 기존: self.dm.df_data 사용 (읽기는 문제 없음)
         df = self.dm.df_data
         rows = df[df["관리번호"] == self.mgmt_no]
         if rows.empty: return
@@ -347,7 +423,11 @@ class QuotePopup(ctk.CTkToplevel):
         self.entry_date.insert(0, date_val)
 
         self.combo_type.set(str(first.get("구분", "내수")))
-        self.combo_client.set(str(first.get("업체명", "")))
+        
+        client_name = str(first.get("업체명", ""))
+        self.entry_client.delete(0, "end")
+        self.entry_client.insert(0, client_name)
+        
         self.combo_currency.set(str(first.get("통화", "KRW")))
         
         saved_tax = first.get("세율(%)", "")
@@ -361,21 +441,18 @@ class QuotePopup(ctk.CTkToplevel):
         self.entry_project.insert(0, str(first.get("프로젝트명", "")))
         self.entry_req.insert(0, str(first.get("주문요청사항", "")).replace("nan", ""))
         
-        file_path = str(first.get("발주서경로" if self.default_status == "주문" else "견적서경로", ""))
-        self.entry_file.insert(0, file_path)
         self.entry_note.insert(0, str(first.get("비고", "")))
         
-        # [신규] 상태 로드
         current_status = str(first.get("Status", self.default_status))
         self.combo_status.set(current_status)
         
-        self.on_client_select(str(first.get("업체명", "")))
+        self.on_client_select(client_name)
         for _, row in rows.iterrows(): self.add_item_row(row)
 
-    # [수정] 트랜잭션 적용
     def save(self):
         mgmt_no = self.entry_id.get()
-        client = self.combo_client.get()
+        client = self.entry_client.get()
+        
         if not client:
             messagebox.showwarning("경고", "고객사를 선택해주세요.", parent=self)
             return
@@ -383,18 +460,9 @@ class QuotePopup(ctk.CTkToplevel):
             messagebox.showwarning("경고", "최소 1개 이상의 품목을 추가해주세요.", parent=self)
             return
 
-        file_path = self.entry_file.get()
-        saved_file_path = file_path
-        file_prefix = "발주서" if self.default_status == "주문" else "견적서"
-        
-        if file_path and "SalesManager" not in file_path:
-            new_path, err = self.dm.save_attachment(file_path, client, file_prefix)
-            if new_path: saved_file_path = new_path
-        
         try: tax_rate_val = float(self.entry_tax_rate.get().strip())
         except: tax_rate_val = 0
 
-        # UI에서 데이터 수집 (메인 스레드 작업)
         new_rows = []
         common_data = {
             "관리번호": mgmt_no,
@@ -406,15 +474,13 @@ class QuotePopup(ctk.CTkToplevel):
             "세율(%)": tax_rate_val,
             "주문요청사항": self.entry_req.get(),
             "비고": self.entry_note.get(),
-            "Status": self.combo_status.get() # [수정] 콤보박스 값 사용
+            "Status": self.combo_status.get()
         }
         
         if self.default_status == "주문":
             common_data["수주일"] = self.entry_date.get()
-            common_data["발주서경로"] = saved_file_path
         else:
             common_data["견적일"] = self.entry_date.get()
-            common_data["견적서경로"] = saved_file_path
 
         for item in self.item_rows:
             qty = float(item["qty"].get().replace(",","") or 0)
@@ -438,47 +504,32 @@ class QuotePopup(ctk.CTkToplevel):
             })
             new_rows.append(row_data)
 
-        # 트랜잭션 로직 정의
         def update_logic(dfs):
-            # 기존 데이터가 있으면 보존해야 할 필드(출고 정보 등)를 가져와야 함
             if self.mgmt_no:
-                # 파일에 있는 최신 데이터에서 해당 관리번호 행들 조회
                 mask = dfs["data"]["관리번호"] == self.mgmt_no
                 existing_rows = dfs["data"][mask]
                 
                 if not existing_rows.empty:
                     first_exist = existing_rows.iloc[0]
-                    # 보존할 필드들 업데이트
                     for row in new_rows:
-                        # [수정] Status는 이미 new_rows에 콤보박스 값으로 설정됨. 기존 값 덮어쓰지 않음.
-                        # row["Status"] = first_exist.get("Status", self.default_status) 
                         row["출고예정일"] = first_exist.get("출고예정일", "-")
                         row["출고일"] = first_exist.get("출고일", "-")
                         row["입금완료일"] = first_exist.get("입금완료일", "-")
                         row["세금계산서발행일"] = first_exist.get("세금계산서발행일", "-")
                         row["계산서번호"] = first_exist.get("계산서번호", "-")
                         row["수출신고번호"] = first_exist.get("수출신고번호", "-")
-                        # 기수금액/미수금액은 새로 계산된 값으로 덮어쓰거나, 기존 납부 내역을 고려해야 함
-                        # 여기서는 단순 수정을 가정하여 초기화 로직(0/Total)을 쓰지만,
-                        # 부분 입금된 상태에서 견적 수정 시 입금액 보존 로직이 필요할 수 있음.
-                        # 복잡도상 현재는 UI에서 계산된 값(0/Total)을 쓰되,
-                        # 필요하다면 existing_rows['기수금액'] 합계를 가져와 반영해야 함.
                         
-                # 기존 데이터 삭제
                 dfs["data"] = dfs["data"][~mask]
             
-            # 새 데이터 추가
             new_df = pd.DataFrame(new_rows)
             dfs["data"] = pd.concat([dfs["data"], new_df], ignore_index=True)
             
-            # 로그
             action = "수정" if self.mgmt_no else "등록"
             new_log = self.dm._create_log_entry(f"{self.default_status} {action}", f"번호 [{mgmt_no}] / 업체 [{client}]")
             dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
             
             return True, ""
 
-        # 트랜잭션 실행
         success, msg = self.dm._execute_transaction(update_logic)
         
         if success:
@@ -488,7 +539,6 @@ class QuotePopup(ctk.CTkToplevel):
         else:
             messagebox.showerror("실패", msg, parent=self)
 
-    # [수정] 트랜잭션 적용
     def delete_quote(self):
         if messagebox.askyesno("삭제 확인", "정말 이 데이터를 삭제하시겠습니까?", parent=self):
             def update_logic(dfs):
@@ -508,9 +558,7 @@ class QuotePopup(ctk.CTkToplevel):
                 messagebox.showerror("실패", msg, parent=self)
 
     def export_quote(self):
-        # ... (기존과 동일, 읽기 전용 작업이므로 수정 불필요) ...
-        # [코드 생략 - 위와 동일]
-        client_name = self.combo_client.get()
+        client_name = self.entry_client.get()
         if not client_name:
             self.attributes("-topmost", False)
             messagebox.showwarning("경고", "고객사를 선택해주세요.", parent=self)
