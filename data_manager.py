@@ -5,6 +5,7 @@ import shutil
 from datetime import datetime
 
 import pandas as pd
+import openpyxl
 
 from config import Config
 
@@ -19,6 +20,8 @@ class DataManager:
         
         self.current_excel_path = Config.DEFAULT_EXCEL_PATH
         self.attachment_root = Config.DEFAULT_ATTACHMENT_ROOT
+        self.production_request_path = Config.DEFAULT_PRODUCTION_REQUEST_PATH
+        
         self.current_theme = "Dark"
         self.is_dev_mode = False
         
@@ -32,17 +35,20 @@ class DataManager:
                     self.current_excel_path = data.get("excel_path", Config.DEFAULT_EXCEL_PATH)
                     self.current_theme = data.get("theme", "Dark")
                     self.attachment_root = data.get("attachment_root", Config.DEFAULT_ATTACHMENT_ROOT)
+                    self.production_request_path = data.get("production_request_path", Config.DEFAULT_PRODUCTION_REQUEST_PATH)
             except: pass
 
-    def save_config(self, new_path=None, new_theme=None, new_attachment_dir=None):
+    def save_config(self, new_path=None, new_theme=None, new_attachment_dir=None, new_prod_path=None):
         if new_path: self.current_excel_path = new_path
         if new_theme: self.current_theme = new_theme
         if new_attachment_dir: self.attachment_root = new_attachment_dir
+        if new_prod_path: self.production_request_path = new_prod_path
         
         data = {
             "excel_path": self.current_excel_path,
             "theme": self.current_theme,
-            "attachment_root": self.attachment_root
+            "attachment_root": self.attachment_root,
+            "production_request_path": self.production_request_path
         }
         try:
             with open(Config.CONFIG_FILENAME, "w", encoding="utf-8") as f:
@@ -77,7 +83,6 @@ class DataManager:
             return False, f"오류 발생: {e}"
 
     def _preprocess_data(self):
-        # 1. 누락된 컬럼 자동 생성
         for col in Config.DATA_COLUMNS:
             if col not in self.df_data.columns:
                 self.df_data[col] = "-"
@@ -85,13 +90,11 @@ class DataManager:
         self.df_data = self.df_data.fillna("-")
         self.df_clients = self.df_clients.fillna("-")
         
-        # 2. 숫자형 변환
         num_cols = ["수량", "단가", "환율", "세율(%)", "공급가액", "세액", "합계금액", "기수금액", "미수금액"]
         for col in num_cols:
             if col in self.df_data.columns:
                 self.df_data[col] = pd.to_numeric(self.df_data[col], errors='coerce').fillna(0)
 
-        # 3. 날짜형 변환 (선적일 포함)
         date_cols = ["견적일", "수주일", "출고예정일", "출고일", "선적일", "입금완료일", "세금계산서발행일"]
         for col in date_cols:
             if col in self.df_data.columns:
@@ -174,3 +177,97 @@ class DataManager:
         except Exception as e: return False, str(e)
 
     def clean_old_logs(self): return True, "로그 정리 완료"
+
+    def export_to_production_request(self, rows_data):
+        """
+        SalesList의 특정 행 데이터들(List of Series/Dict)을 생산요청.xlsx 파일의 Data 시트에 추가합니다.
+        동일한 관리번호(번호)와 모델명, 상세가 있는 행이 이미 있다면 업데이트(덮어쓰기)하고,
+        없다면 새로 추가합니다.
+        """
+        prod_path = self.production_request_path
+        if not os.path.exists(prod_path):
+            return False, f"생산 요청 파일을 찾을 수 없습니다.\n경로: {prod_path}"
+
+        try:
+            wb = openpyxl.load_workbook(prod_path)
+            if "Data" not in wb.sheetnames:
+                return False, "'Data' 시트가 존재하지 않습니다."
+            ws = wb["Data"]
+
+            # 2. 업데이트/추가 카운트
+            added_count = 0
+            updated_count = 0
+
+            # 3. 각 행별 처리
+            for row_data in rows_data:
+                # 업체 특이사항 조회
+                client_name = row_data.get("업체명", "")
+                client_note = "-"
+                if not self.df_clients.empty:
+                    c_row = self.df_clients[self.df_clients["업체명"] == client_name]
+                    if not c_row.empty:
+                        val = c_row.iloc[0].get("특이사항", "-")
+                        if str(val) != "nan" and val:
+                            client_note = str(val)
+
+                mgmt_no = str(row_data.get("관리번호", ""))
+                model_name = str(row_data.get("모델명", ""))
+                desc = str(row_data.get("Description", ""))
+
+                # 매핑 데이터 준비 (16개 컬럼)
+                mapping_values = [
+                    mgmt_no,                                # A: 번호
+                    client_name,                            # B: 업체명
+                    model_name,                             # C: 모델명
+                    desc,                                   # D: 상세
+                    row_data.get("수량", 0),                # E: 수량
+                    row_data.get("주문요청사항", ""),       # F: 기타요청사항
+                    client_note,                            # G: 업체별 특이사항
+                    row_data.get("수주일", ""),             # H: 출고요청일
+                    "-",                                    # I: 출고예정일 (초기값 '-')
+                    "-",                                    # J: 출고일
+                    "-",                                    # K: 시리얼번호
+                    "-",                                    # L: 렌즈업체
+                    "-",                                    # M: 생산팀 메모
+                    "생산 접수",                            # N: Status
+                    row_data.get("발주서경로", ""),         # O: 파일경로
+                    "-"                                     # P: 대기사유
+                ]
+
+                # 중복 체크 (번호, 모델명, 상세 내용이 모두 일치하는 행 찾기)
+                target_row_idx = None
+                
+                # 헤더 제외하고 2행부터 검색
+                # [성능 고려] 데이터가 많을 경우 전체 스캔이 느릴 수 있으나, 현재 구조상 불가피함.
+                for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                    # A열(번호), C열(모델명), D열(상세) 비교
+                    curr_mgmt = str(row[0]) if row[0] else ""
+                    curr_model = str(row[2]) if row[2] else ""
+                    curr_desc = str(row[3]) if row[3] else ""
+                    
+                    if curr_mgmt == mgmt_no and curr_model == model_name and curr_desc == desc:
+                        target_row_idx = i
+                        break
+                
+                if target_row_idx:
+                    # 업데이트
+                    for col_idx, val in enumerate(mapping_values, start=1):
+                        # I열(9번째, 출고예정일) 이후의 값들은 생산팀이 수정했을 수 있으므로
+                        # '생산 접수' 상태로 초기화할지, 값을 보존할지 결정해야 함.
+                        # 사용자 요구사항: "초기값 - 로 입력해줘" -> 리셋 로직 적용
+                        ws.cell(row=target_row_idx, column=col_idx, value=val)
+                    updated_count += 1
+                else:
+                    # 신규 추가
+                    ws.append(mapping_values)
+                    added_count += 1
+
+            wb.save(prod_path)
+            wb.close()
+            
+            return True, f"신규: {added_count}건, 업데이트: {updated_count}건 처리되었습니다."
+
+        except PermissionError:
+            return False, "생산 요청 파일이 열려있습니다. 파일을 닫고 다시 시도해주세요."
+        except Exception as e:
+            return False, f"생산 요청 내보내기 실패: {e}"

@@ -153,18 +153,35 @@ class OrderView(ctk.CTkFrame):
         item = self.tree.item(selected[0])
         mgmt_no = item["values"][0]
         
-        if messagebox.askyesno("상태 변경", f"관리번호 [{mgmt_no}]의 상태를 '{new_status}'(으)로 변경하시겠습니까?"):
+        if messagebox.askyesno("상태 변경", f"관리번호 [{mgmt_no}] 및 관련 항목들의 상태를 '{new_status}'(으)로 변경하시겠습니까?"):
             df = self.dm.df_data
+            # 동일한 관리번호를 가진 모든 행 검색
             mask = df["관리번호"] == mgmt_no
+            
             if mask.any():
+                # [NEW] 생산중 상태로 변경 시 생산요청 파일로 일괄 내보내기 시도
+                if new_status == "생산중":
+                    # 출고예정일은 초기값 '-'로 설정 (입력 안 받음)
+                    self.dm.df_data.loc[mask, "출고예정일"] = "-"
+                    
+                    # 해당 관리번호의 모든 행 데이터 추출 (DataFrame -> List of dicts)
+                    target_rows = self.dm.df_data.loc[mask].to_dict('records')
+                    
+                    # 생산 요청 파일로 일괄 내보내기
+                    export_success, export_msg = self.dm.export_to_production_request(target_rows)
+                    
+                    if export_success:
+                        success_msg += f"\n\n[생산팀 전달 성공]\n{export_msg}"
+                    else:
+                        if not messagebox.askyesno("전송 실패", f"생산팀 요청 파일 전송에 실패했습니다.\n사유: {export_msg}\n\n계속 진행하시겠습니까? (상태만 변경됨)"):
+                            return
+
+                # 상태 일괄 업데이트
                 self.dm.df_data.loc[mask, "Status"] = new_status
                 
-                if new_status == "생산중":
-                    date_str = simpledialog.askstring("일정 입력", "출고예정일을 입력하세요 (YYYY-MM-DD):", parent=self)
-                    if date_str:
-                        self.dm.df_data.loc[mask, "출고예정일"] = date_str
-
-                self.dm.save_to_excel()
-                self.dm.add_log(f"상태변경({new_status})", f"번호 [{mgmt_no}]")
-                messagebox.showinfo("완료", success_msg)
-                self.refresh_data()
+                if self.dm.save_to_excel():
+                    self.dm.add_log(f"상태변경({new_status})", f"번호 [{mgmt_no}] - 일괄 처리")
+                    messagebox.showinfo("완료", success_msg)
+                    self.refresh_data()
+                else:
+                    messagebox.showerror("오류", "데이터 저장에 실패했습니다.")

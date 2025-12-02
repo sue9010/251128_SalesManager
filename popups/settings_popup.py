@@ -14,10 +14,10 @@ class SettingsPopup(ctk.CTkToplevel):
         self.refresh_callback = refresh_callback
         
         self.title("환경 설정")
-        self.geometry("500x600")
+        self.geometry("500x750") # 높이 조정
         
         # 화면 중앙 배치
-        self.center_window(500, 600)
+        self.center_window(500, 750)
         
         self.create_widgets()
         
@@ -61,7 +61,7 @@ class SettingsPopup(ctk.CTkToplevel):
         ctk.CTkFrame(parent, height=1, fg_color=COLORS["border"]).pack(fill="x", pady=20)
 
         # 2. 엑셀 파일 경로 설정 섹션
-        ctk.CTkLabel(parent, text="엑셀 데이터 파일 경로", font=FONTS["header"]).pack(pady=(0, 10), anchor="w")
+        ctk.CTkLabel(parent, text="영업 데이터 파일 경로 (SalesList)", font=FONTS["header"]).pack(pady=(0, 10), anchor="w")
 
         path_frame = ctk.CTkFrame(parent, fg_color="transparent")
         path_frame.pack(fill="x")
@@ -89,7 +89,23 @@ class SettingsPopup(ctk.CTkToplevel):
         # 구분선
         ctk.CTkFrame(parent, height=1, fg_color=COLORS["border"]).pack(fill="x", pady=20)
 
-        # 4. 개발자 모드 설정
+        # [NEW] 4. 생산 요청 파일 경로 설정 (추가)
+        ctk.CTkLabel(parent, text="생산 요청 파일 경로 (출고관리)", font=FONTS["header"]).pack(pady=(0, 10), anchor="w")
+
+        prod_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        prod_frame.pack(fill="x")
+
+        self.prod_path_entry = ctk.CTkEntry(prod_frame, font=FONTS["main"])
+        self.prod_path_entry.insert(0, self.dm.production_request_path)
+        self.prod_path_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+
+        ctk.CTkButton(prod_frame, text="찾기", width=60, command=self.browse_production_file, 
+                      fg_color=COLORS["bg_medium"], text_color=COLORS["text"]).pack(side="right")
+
+        # 구분선
+        ctk.CTkFrame(parent, height=1, fg_color=COLORS["border"]).pack(fill="x", pady=20)
+
+        # 5. 개발자 모드 설정
         dev_frame = ctk.CTkFrame(parent, fg_color="transparent")
         dev_frame.pack(fill="x")
         
@@ -109,7 +125,7 @@ class SettingsPopup(ctk.CTkToplevel):
         if self.dm.is_dev_mode:
             self.show_dev_tools()
 
-        # 5. 하단 저장 버튼
+        # 6. 하단 저장 버튼
         ctk.CTkButton(self, text="설정 저장 및 닫기", command=self.save, height=40,
                       fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], font=FONTS["header"]).pack(side="bottom", fill="x", padx=20, pady=20)
 
@@ -134,6 +150,15 @@ class SettingsPopup(ctk.CTkToplevel):
         if file_path:
             self.path_entry.delete(0, "end")
             self.path_entry.insert(0, file_path)
+
+    # [NEW] 생산 요청 파일 브라우즈
+    def browse_production_file(self):
+        self.attributes("-topmost", False)
+        file_path = filedialog.askopenfilename(parent=self, filetypes=[("Excel files", "*.xlsx;*.xls;*.xlsm")])
+        self.attributes("-topmost", True)
+        if file_path:
+            self.prod_path_entry.delete(0, "end")
+            self.prod_path_entry.insert(0, file_path)
 
     def browse_folder(self):
         self.attributes("-topmost", False)
@@ -183,9 +208,16 @@ class SettingsPopup(ctk.CTkToplevel):
         new_path = self.path_entry.get()
         new_theme = self.theme_var.get()
         new_attach = self.attach_path_entry.get()
+        # [NEW] 생산 요청 경로 가져오기
+        new_prod_path = self.prod_path_entry.get()
         
         if new_path:
-            self.dm.save_config(new_path=new_path, new_theme=new_theme, new_attachment_dir=new_attach)
+            self.dm.save_config(
+                new_path=new_path, 
+                new_theme=new_theme, 
+                new_attachment_dir=new_attach,
+                new_prod_path=new_prod_path # [NEW] 저장 함수로 전달
+            )
             
             self.attributes("-topmost", False)
             messagebox.showinfo("설정 저장", "설정이 저장되었습니다.", parent=self)

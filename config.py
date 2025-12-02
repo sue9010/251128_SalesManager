@@ -25,6 +25,9 @@ class Config:
     DEFAULT_EXCEL_PATH = r"\\cox_biz\business\SalesManager\SalesList.xlsx"
     DEFAULT_ATTACHMENT_ROOT = r"\\cox_biz\business\SalesManager"
     
+    # [NEW] 생산 요청(출고관리) 파일 경로
+    DEFAULT_PRODUCTION_REQUEST_PATH = r"\\cox_biz\business\SalesManager\생산 요청.xlsx"
+    
     if not os.path.exists(DEFAULT_ATTACHMENT_ROOT):
         try:
             pass 
@@ -40,6 +43,12 @@ class Config:
     SHEET_MEMO = "Memos"
     SHEET_MEMO_LOG = "Memo Log"
 
+    # [NEW] 생산 요청 파일 시트 설정 (참고용)
+    PROD_SHEET_DATA = "Data"
+    PROD_SHEET_LOG = "Log"
+    PROD_SHEET_MEMO = "Memos"
+    PROD_SHEET_SERIAL = "Serial_Data"
+
     # 1. 업체 관리 시트
     CLIENT_COLUMNS = [
         "업체명", "국가", "통화", "주소", "담당자", "전화번호", "이메일", 
@@ -47,7 +56,7 @@ class Config:
         "특이사항", "사업자등록증경로"
     ]
 
-    # 2. 영업 데이터 시트 (컬럼 추가됨)
+    # 2. 영업 데이터 시트
     DATA_COLUMNS = [
         # [기본 정보]
         "관리번호", "구분", "업체명", "프로젝트명", "품목명", "모델명", "Description",
