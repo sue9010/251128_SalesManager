@@ -24,6 +24,7 @@ from views.kanban_view import KanbanView
 from views.order_view import OrderView
 from views.payment_view import PaymentView
 from views.quote_view import QuoteView
+from views.table_view import TableView
 
 if DND_AVAILABLE:
     class BaseApp(ctk.CTk, TkinterDnD.DnDWrapper):
@@ -107,6 +108,7 @@ class SalesManagerApp(BaseApp):
             ]),
             ("일정", [
                 ("📅 캘린더 뷰", self.show_calendar_view),
+                ("📊 테이블 뷰", self.show_table_view),
                 ("📋 칸반 보드", self.show_kanban_view),
                 ("📈 간트 차트", self.show_gantt_view),
             ])
@@ -154,6 +156,7 @@ class SalesManagerApp(BaseApp):
         self.view_calendar = CalendarView(self.content_frame, self.dm, self.pm)
         self.view_kanban = KanbanView(self.content_frame, self.dm, self.pm)
         self.view_gantt = GanttView(self.content_frame, self.dm, self.pm)
+        self.view_table = TableView(self.content_frame, self.dm, self.pm)
 
     def switch_view(self, view_name_key, view_instance):
         for text, btn in self.nav_buttons.items():
@@ -180,6 +183,7 @@ class SalesManagerApp(BaseApp):
     def show_calendar_view(self): self.switch_view("📅 캘린더 뷰", self.view_calendar)
     def show_kanban_view(self): self.switch_view("📋 칸반 보드", self.view_kanban)
     def show_gantt_view(self): self.switch_view("📈 간트 차트", self.view_gantt)
+    def show_table_view(self): self.switch_view("📊 테이블 뷰", self.view_table)
 
     def reload_all_data(self):
         success, msg = self.dm.load_data()

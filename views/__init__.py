@@ -7,3 +7,4 @@ from .kanban_view import KanbanView
 from .order_view import OrderView
 from .payment_view import PaymentView
 from .quote_view import QuoteView
+from .table_view import TableView

@@ -44,11 +44,7 @@ class QuotePopup(ctk.CTkToplevel):
         self.grab_set()
         self.attributes("-topmost", True)
 
-    # ... (create_widgets, load_clients, on_... 메서드 등은 기존과 동일하므로 생략 - 전체 코드에서 복사/붙여넣기 사용 권장) ...
-    # 코드 길이 제한으로 변경된 메서드 위주로 작성합니다. 전체 코드는 기존 파일 참조.
-
     def create_widgets(self):
-        # [기존과 동일]
         top_frame = ctk.CTkFrame(self, fg_color="transparent")
         top_frame.pack(fill="x", padx=20, pady=15)
 
@@ -66,6 +62,12 @@ class QuotePopup(ctk.CTkToplevel):
         self.combo_type = ctk.CTkComboBox(top_frame, values=["내수", "수출"], width=100, font=FONTS["main"], command=self.on_type_change)
         self.combo_type.grid(row=0, column=5, padx=5, sticky="w")
         self.combo_type.set("내수")
+
+        # [신규] 상태 변경 콤보박스
+        ctk.CTkLabel(top_frame, text="상태", font=FONTS["main_bold"]).grid(row=0, column=6, padx=5, sticky="w")
+        self.combo_status = ctk.CTkComboBox(top_frame, values=["견적", "주문", "생산중", "납품대기", "납품완료/입금대기", "납품대기/입금완료", "완료", "취소", "보류"], width=120, font=FONTS["main"])
+        self.combo_status.grid(row=0, column=7, padx=5, sticky="w")
+        self.combo_status.set(self.default_status)
 
         ctk.CTkLabel(top_frame, text="고객사", font=FONTS["main_bold"]).grid(row=1, column=0, padx=5, pady=10, sticky="w")
         self.combo_client = ctk.CTkComboBox(top_frame, width=200, font=FONTS["main"], command=self.on_client_select)
@@ -363,6 +365,10 @@ class QuotePopup(ctk.CTkToplevel):
         self.entry_file.insert(0, file_path)
         self.entry_note.insert(0, str(first.get("비고", "")))
         
+        # [신규] 상태 로드
+        current_status = str(first.get("Status", self.default_status))
+        self.combo_status.set(current_status)
+        
         self.on_client_select(str(first.get("업체명", "")))
         for _, row in rows.iterrows(): self.add_item_row(row)
 
@@ -400,7 +406,7 @@ class QuotePopup(ctk.CTkToplevel):
             "세율(%)": tax_rate_val,
             "주문요청사항": self.entry_req.get(),
             "비고": self.entry_note.get(),
-            "Status": self.default_status
+            "Status": self.combo_status.get() # [수정] 콤보박스 값 사용
         }
         
         if self.default_status == "주문":
@@ -444,7 +450,8 @@ class QuotePopup(ctk.CTkToplevel):
                     first_exist = existing_rows.iloc[0]
                     # 보존할 필드들 업데이트
                     for row in new_rows:
-                        row["Status"] = first_exist.get("Status", self.default_status)
+                        # [수정] Status는 이미 new_rows에 콤보박스 값으로 설정됨. 기존 값 덮어쓰지 않음.
+                        # row["Status"] = first_exist.get("Status", self.default_status) 
                         row["출고예정일"] = first_exist.get("출고예정일", "-")
                         row["출고일"] = first_exist.get("출고일", "-")
                         row["입금완료일"] = first_exist.get("입금완료일", "-")
