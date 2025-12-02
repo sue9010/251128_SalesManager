@@ -7,6 +7,7 @@ import pandas as pd
 
 from config import Config
 from styles import COLORS, FONT_FAMILY, FONTS
+from export_manager import ExportManager
 
 
 class QuotePopup(ctk.CTkToplevel):
@@ -16,6 +17,9 @@ class QuotePopup(ctk.CTkToplevel):
         self.refresh_callback = refresh_callback
         self.mgmt_no = mgmt_no
         self.default_status = default_status
+        
+        # Export Manager 인스턴스
+        self.export_manager = ExportManager()
         
         if mgmt_no:
             mode_text = "상세 정보 수정"
@@ -91,8 +95,6 @@ class QuotePopup(ctk.CTkToplevel):
         self.entry_project = ctk.CTkEntry(top_frame, width=300, font=FONTS["main"])
         self.entry_project.grid(row=2, column=1, columnspan=3, padx=5, sticky="ew")
         
-        # [수정] 출고예정일 입력란 삭제됨
-
         # 업체 특이사항 표시 (Readonly)
         info_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"], height=40)
         info_frame.pack(fill="x", padx=20, pady=(0, 10))
@@ -159,6 +161,11 @@ class QuotePopup(ctk.CTkToplevel):
 
         ctk.CTkButton(btn_frame, text="저장", command=self.save, width=120, height=40,
                       fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], font=FONTS["main_bold"]).pack(side="right", padx=5)
+        
+        # 견적서 발행 버튼
+        ctk.CTkButton(btn_frame, text="🖨️ 견적서 발행", command=self.export_quote, width=120, height=40,
+                      fg_color=COLORS["warning"], hover_color="#D35400", text_color="white", font=FONTS["main_bold"]).pack(side="right", padx=5)
+
         ctk.CTkButton(btn_frame, text="취소", command=self.destroy, width=80, height=40,
                       fg_color=COLORS["bg_light"], hover_color=COLORS["bg_light_hover"], text_color=COLORS["text"]).pack(side="right", padx=5)
         
@@ -390,7 +397,6 @@ class QuotePopup(ctk.CTkToplevel):
         self.entry_tax_rate.insert(0, tax_rate)
 
         self.entry_project.insert(0, str(first.get("프로젝트명", "")))
-        # [수정] 출고예정일 로드 삭제 (입력란이 없으므로)
         self.entry_req.insert(0, str(first.get("주문요청사항", "")).replace("nan", ""))
         
         file_path = str(first.get("발주서경로" if self.default_status == "주문" else "견적서경로", ""))
@@ -447,19 +453,15 @@ class QuotePopup(ctk.CTkToplevel):
             common_data["견적일"] = self.entry_date.get()
             common_data["견적서경로"] = saved_file_path
         
-        # [수정] 수정 모드일 경우 기존 데이터의 값을 보존 (특히 출고예정일 등)
         if self.mgmt_no:
-            # 기존 데이터의 첫 번째 행에서 정보를 가져옴
             existing_row = self.dm.df_data[self.dm.df_data["관리번호"]==self.mgmt_no].iloc[0]
             common_data["Status"] = existing_row["Status"]
-            # 입력란이 없어 화면에선 안 보이지만 데이터에는 존재하는 값들을 보존
             common_data["출고예정일"] = existing_row.get("출고예정일", "-")
             common_data["출고일"] = existing_row.get("출고일", "-")
             common_data["입금완료일"] = existing_row.get("입금완료일", "-")
             common_data["세금계산서발행일"] = existing_row.get("세금계산서발행일", "-")
             common_data["계산서번호"] = existing_row.get("계산서번호", "-")
             common_data["수출신고번호"] = existing_row.get("수출신고번호", "-")
-            # 기수금액 등은 아래 루프에서 처리
 
         for item in self.item_rows:
             qty = float(item["qty"].get().replace(",","") or 0)
@@ -478,19 +480,9 @@ class QuotePopup(ctk.CTkToplevel):
                 "공급가액": supply,
                 "세액": tax,
                 "합계금액": total,
-                # [수정] 기수금액, 미수금액은 초기화(신규)하거나 보존(수정)해야 함
-                # 하지만 여기서는 단순화를 위해 신규 등록 시 초기화 로직을 유지하고,
-                # 수정 시에는 기존 로직을 따라갈 수 있도록 별도 처리하지 않음 (단, 전체 덮어쓰기 구조임)
-                # 만약 이미 부분 납품/입금된 건을 여기서 수정하면 기수금액이 날아갈 수 있음.
-                # 따라서 수정 모드일 때는 기존 기수금액을 유지해야 함.
             })
             
             if self.mgmt_no:
-                # 수정 모드: 기존 행의 기수금액 유지 (단, 품목이 바뀌면 매칭이 어려우므로 
-                # 관리번호 단위 총액 관리라 가정하고 여기서는 0으로 리셋하지 않고 기존 값 유지 시도 불가)
-                # 현재 구조상 품목별 ID가 없어서, 견적 수정 시에는 금액 초기화를 감수하거나
-                # 아예 '진행 중'인 건은 수정 불가하게 막는 것이 안전함.
-                # 일단은 '초기화' 로직으로 둡니다. (사용자 요청에 따라 변경 가능)
                 row_data["기수금액"] = 0 
                 row_data["미수금액"] = total
             else:
@@ -524,3 +516,62 @@ class QuotePopup(ctk.CTkToplevel):
             self.dm.save_to_excel()
             self.refresh_callback()
             self.destroy()
+
+    def export_quote(self):
+        """견적서 PDF 발행"""
+        # 1. UI 데이터 수집
+        client_name = self.combo_client.get()
+        if not client_name:
+            self.attributes("-topmost", False)
+            messagebox.showwarning("경고", "고객사를 선택해주세요.", parent=self)
+            self.attributes("-topmost", True)
+            return
+
+        # 고객 정보 조회
+        client_row = self.dm.df_clients[self.dm.df_clients["업체명"] == client_name]
+        if client_row.empty:
+            self.attributes("-topmost", False)
+            messagebox.showerror("오류", "고객 정보를 찾을 수 없습니다.", parent=self)
+            self.attributes("-topmost", True)
+            return
+        
+        # 2. 데이터 준비
+        quote_info = {
+            "client_name": client_name,
+            "mgmt_no": self.entry_id.get(),
+            "date": self.entry_date.get(),
+            "req_note": self.entry_req.get()
+        }
+        
+        items = []
+        for row in self.item_rows:
+            try:
+                qty = float(row["qty"].get().replace(",", "") or 0)
+                price = float(row["price"].get().replace(",", "") or 0)
+                amount = float(row["total"].get().replace(",", "") or 0)
+            except:
+                qty, price, amount = 0, 0, 0
+                
+            items.append({
+                "item": row["item"].get(),
+                "model": row["model"].get(),
+                "desc": row["desc"].get(),
+                "qty": qty,
+                "price": price,
+                "amount": amount
+            })
+
+        # 3. ExportManager 호출
+        success, result = self.export_manager.export_quote_to_pdf(
+            client_row.iloc[0], quote_info, items
+        )
+        
+        # [수정] 팝업 표시 전 Topmost 해제, 후 복구
+        self.attributes("-topmost", False)
+        
+        if success:
+            messagebox.showinfo("성공", f"견적서가 생성되었습니다.\n{result}", parent=self)
+        else:
+            messagebox.showerror("실패", result, parent=self)
+            
+        self.attributes("-topmost", True)
