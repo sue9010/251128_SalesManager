@@ -17,7 +17,6 @@ from popup_manager import PopupManager
 from styles import COLORS, FONT_FAMILY, FONTS
 from views.calendar_view import CalendarView
 from views.client_view import ClientView
-# Views Import
 from views.dashboard import DashboardView
 from views.delivery_view import DeliveryView
 from views.gantt_view import GanttView
@@ -62,10 +61,25 @@ class SalesManagerApp(BaseApp):
         # 데이터 로드 시도
         success, msg = self.dm.load_data()
         if not success:
-            # 파일이 없어서 생성했거나 에러가 났을 경우 알림
             pass 
             
         self.show_dashboard()
+        
+        # [신규] 자동 새로고침 시작
+        self.start_auto_refresh_loop()
+
+    # [신규] 자동 새로고침 루프
+    def start_auto_refresh_loop(self):
+        try:
+            if self.dm.check_for_external_changes():
+                success, _ = self.dm.load_data()
+                if success:
+                    self.refresh_ui()
+        except Exception as e:
+            print(f"Auto Refresh Error: {e}")
+        
+        # 5초마다 체크
+        self.after(5000, self.start_auto_refresh_loop)
 
     def create_sidebar(self):
         self.sidebar_frame = ctk.CTkFrame(self, width=240, corner_radius=0, fg_color=COLORS["bg_dark"])

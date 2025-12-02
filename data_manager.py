@@ -25,6 +25,9 @@ class DataManager:
         self.current_theme = "Dark"
         self.is_dev_mode = False
         
+        # [신규] 파일 변경 감지를 위한 타임스탬프
+        self.last_file_timestamp = 0.0
+        
         self.load_config()
 
     def load_config(self):
@@ -56,11 +59,18 @@ class DataManager:
         except Exception as e:
             print(f"설정 저장 실패: {e}")
 
+    # ---------------------------------------------------------
+    # [핵심] 트랜잭션 및 파일 로드
+    # ---------------------------------------------------------
     def load_data(self):
         if not os.path.exists(self.current_excel_path):
-            return False, "파일이 존재하지 않습니다. 새 파일을 생성합니다."
+            # 파일이 없으면 빈 파일 생성 로직이 필요할 수 있음
+            return False, "파일이 존재하지 않습니다."
 
         try:
+            # [신규] 타임스탬프 갱신
+            current_mtime = os.path.getmtime(self.current_excel_path)
+            
             with pd.ExcelFile(self.current_excel_path) as xls:
                 if Config.SHEET_CLIENTS in xls.sheet_names:
                     self.df_clients = pd.read_excel(xls, Config.SHEET_CLIENTS)
@@ -72,16 +82,137 @@ class DataManager:
                 
                 if Config.SHEET_LOG in xls.sheet_names:
                     self.df_log = pd.read_excel(xls, Config.SHEET_LOG)
+                else:
+                    self.df_log = pd.DataFrame(columns=Config.LOG_COLUMNS)
+
                 if Config.SHEET_MEMO in xls.sheet_names:
                     self.df_memo = pd.read_excel(xls, Config.SHEET_MEMO)
+                else:
+                    self.df_memo = pd.DataFrame(columns=Config.MEMO_COLUMNS)
+
                 if Config.SHEET_MEMO_LOG in xls.sheet_names:
                     self.df_memo_log = pd.read_excel(xls, Config.SHEET_MEMO_LOG)
+                else:
+                    self.df_memo_log = pd.DataFrame(columns=Config.MEMO_LOG_COLUMNS)
 
             self._preprocess_data()
+            
+            # 로드 성공 시 타임스탬프 업데이트
+            self.last_file_timestamp = current_mtime
+            
             return True, "데이터 로드 완료"
         except Exception as e:
             return False, f"오류 발생: {e}"
 
+    def check_for_external_changes(self):
+        """파일이 외부에서 변경되었는지 확인"""
+        if not os.path.exists(self.current_excel_path):
+            return False
+        try:
+            current_mtime = os.path.getmtime(self.current_excel_path)
+            if current_mtime > self.last_file_timestamp:
+                return True
+        except OSError:
+            pass
+        return False
+
+    def _execute_transaction(self, update_logic_func):
+        """
+        데이터 충돌 방지를 위한 트랜잭션 함수
+        1. 최신 엑셀 파일 로드 (모든 시트)
+        2. update_logic_func 실행 (수정 로직 적용)
+        3. 엑셀 파일 저장
+        4. 메모리 데이터 갱신
+        """
+        if not os.path.exists(self.current_excel_path):
+            return False, "엑셀 파일이 존재하지 않습니다."
+
+        try:
+            # 1. 최신 상태 읽기
+            with pd.ExcelFile(self.current_excel_path) as xls:
+                # Clients
+                if Config.SHEET_CLIENTS in xls.sheet_names:
+                    temp_clients = pd.read_excel(xls, Config.SHEET_CLIENTS)
+                    temp_clients.columns = temp_clients.columns.str.strip()
+                else:
+                    temp_clients = pd.DataFrame(columns=Config.CLIENT_COLUMNS)
+
+                # Data
+                if Config.SHEET_DATA in xls.sheet_names:
+                    temp_data = pd.read_excel(xls, Config.SHEET_DATA)
+                    temp_data.columns = temp_data.columns.str.strip()
+                else:
+                    temp_data = pd.DataFrame(columns=Config.DATA_COLUMNS)
+
+                # Log
+                if Config.SHEET_LOG in xls.sheet_names:
+                    temp_log = pd.read_excel(xls, Config.SHEET_LOG)
+                else:
+                    temp_log = pd.DataFrame(columns=Config.LOG_COLUMNS)
+
+                # Memo & Memo Log
+                if Config.SHEET_MEMO in xls.sheet_names:
+                    temp_memo = pd.read_excel(xls, Config.SHEET_MEMO)
+                else:
+                    temp_memo = pd.DataFrame(columns=Config.MEMO_COLUMNS)
+                
+                if Config.SHEET_MEMO_LOG in xls.sheet_names:
+                    temp_memo_log = pd.read_excel(xls, Config.SHEET_MEMO_LOG)
+                else:
+                    temp_memo_log = pd.DataFrame(columns=Config.MEMO_LOG_COLUMNS)
+
+            # 전처리 (결측치 처리 등 - 저장 시 문제 없도록)
+            for col in Config.DATA_COLUMNS:
+                if col not in temp_data.columns: temp_data[col] = "-"
+            temp_data = temp_data.fillna("-")
+            temp_clients = temp_clients.fillna("-")
+
+            # 2. 수정 로직 실행
+            # 딕셔너리로 전달: { "clients": df, "data": df, "log": df, ... }
+            dfs = {
+                "clients": temp_clients,
+                "data": temp_data,
+                "log": temp_log,
+                "memo": temp_memo,
+                "memo_log": temp_memo_log
+            }
+            
+            success, msg = update_logic_func(dfs)
+            
+            if not success:
+                return False, msg
+
+            # 3. 파일 저장
+            with pd.ExcelWriter(self.current_excel_path, engine="openpyxl") as writer:
+                dfs["clients"].to_excel(writer, sheet_name=Config.SHEET_CLIENTS, index=False)
+                dfs["data"].to_excel(writer, sheet_name=Config.SHEET_DATA, index=False)
+                dfs["log"].to_excel(writer, sheet_name=Config.SHEET_LOG, index=False)
+                dfs["memo"].to_excel(writer, sheet_name=Config.SHEET_MEMO, index=False)
+                dfs["memo_log"].to_excel(writer, sheet_name=Config.SHEET_MEMO_LOG, index=False)
+
+            # 4. 내 메모리 갱신
+            self.load_data()
+            return True, "저장되었습니다."
+
+        except PermissionError:
+            return False, "엑셀 파일이 열려있습니다. 파일을 닫고 다시 시도해주세요."
+        except Exception as e:
+            return False, f"트랜잭션 오류: {e}"
+
+    def _create_log_entry(self, action, details):
+        """트랜잭션 내부용 로그 엔트리 생성"""
+        try: user = getpass.getuser()
+        except: user = "Unknown"
+        return {
+            "일시": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "작업자": user,
+            "구분": action,
+            "상세내용": details
+        }
+
+    # ---------------------------------------------------------
+    # Helper Methods
+    # ---------------------------------------------------------
     def _preprocess_data(self):
         for col in Config.DATA_COLUMNS:
             if col not in self.df_data.columns:
@@ -102,6 +233,10 @@ class DataManager:
                 self.df_data[col] = self.df_data[col].fillna("-")
 
     def save_to_excel(self):
+        """
+        [주의] 단순 저장용. 동시성 제어가 필요 없는 경우에만 사용.
+        중요한 데이터 수정은 _execute_transaction 사용 권장.
+        """
         try:
             with pd.ExcelWriter(self.current_excel_path, engine="openpyxl") as writer:
                 self.df_clients.to_excel(writer, sheet_name=Config.SHEET_CLIENTS, index=False)
@@ -111,7 +246,7 @@ class DataManager:
                 self.df_memo_log.to_excel(writer, sheet_name=Config.SHEET_MEMO_LOG, index=False)
             return True, "저장 완료"
         except PermissionError:
-            return False, "엑셀 파일이 열려있습니다. 파일을 닫고 다시 시도해주세요."
+            return False, "엑셀 파일이 열려있습니다."
         except Exception as e:
             return False, f"저장 실패: {e}"
 
@@ -138,6 +273,7 @@ class DataManager:
             return None, str(e)
 
     def add_log(self, action, details):
+        """단순 로그 추가 (메모리상) - 트랜잭션 미사용 시"""
         try: user = getpass.getuser()
         except: user = "Unknown"
         new = {"일시": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "작업자": user, "구분": action, "상세내용": details}
@@ -179,11 +315,7 @@ class DataManager:
     def clean_old_logs(self): return True, "로그 정리 완료"
 
     def export_to_production_request(self, rows_data):
-        """
-        SalesList의 특정 행 데이터들(List of Series/Dict)을 생산요청.xlsx 파일의 Data 시트에 추가합니다.
-        동일한 관리번호(번호)와 모델명, 상세가 있는 행이 이미 있다면 업데이트(덮어쓰기)하고,
-        없다면 새로 추가합니다.
-        """
+        # ... (기존과 동일, 생략 가능하지만 완전성을 위해 유지) ...
         prod_path = self.production_request_path
         if not os.path.exists(prod_path):
             return False, f"생산 요청 파일을 찾을 수 없습니다.\n경로: {prod_path}"
@@ -194,13 +326,10 @@ class DataManager:
                 return False, "'Data' 시트가 존재하지 않습니다."
             ws = wb["Data"]
 
-            # 2. 업데이트/추가 카운트
             added_count = 0
             updated_count = 0
 
-            # 3. 각 행별 처리
             for row_data in rows_data:
-                # 업체 특이사항 조회
                 client_name = row_data.get("업체명", "")
                 client_note = "-"
                 if not self.df_clients.empty:
@@ -214,33 +343,15 @@ class DataManager:
                 model_name = str(row_data.get("모델명", ""))
                 desc = str(row_data.get("Description", ""))
 
-                # 매핑 데이터 준비 (16개 컬럼)
                 mapping_values = [
-                    mgmt_no,                                # A: 번호
-                    client_name,                            # B: 업체명
-                    model_name,                             # C: 모델명
-                    desc,                                   # D: 상세
-                    row_data.get("수량", 0),                # E: 수량
-                    row_data.get("주문요청사항", ""),       # F: 기타요청사항
-                    client_note,                            # G: 업체별 특이사항
-                    row_data.get("수주일", ""),             # H: 출고요청일
-                    "-",                                    # I: 출고예정일 (초기값 '-')
-                    "-",                                    # J: 출고일
-                    "-",                                    # K: 시리얼번호
-                    "-",                                    # L: 렌즈업체
-                    "-",                                    # M: 생산팀 메모
-                    "생산 접수",                            # N: Status
-                    row_data.get("발주서경로", ""),         # O: 파일경로
-                    "-"                                     # P: 대기사유
+                    mgmt_no, client_name, model_name, desc,
+                    row_data.get("수량", 0), row_data.get("주문요청사항", ""), client_note,
+                    row_data.get("수주일", ""), "-", "-", "-", "-", "-", "생산 접수",
+                    row_data.get("발주서경로", ""), "-"
                 ]
 
-                # 중복 체크 (번호, 모델명, 상세 내용이 모두 일치하는 행 찾기)
                 target_row_idx = None
-                
-                # 헤더 제외하고 2행부터 검색
-                # [성능 고려] 데이터가 많을 경우 전체 스캔이 느릴 수 있으나, 현재 구조상 불가피함.
                 for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                    # A열(번호), C열(모델명), D열(상세) 비교
                     curr_mgmt = str(row[0]) if row[0] else ""
                     curr_model = str(row[2]) if row[2] else ""
                     curr_desc = str(row[3]) if row[3] else ""
@@ -250,24 +361,18 @@ class DataManager:
                         break
                 
                 if target_row_idx:
-                    # 업데이트
                     for col_idx, val in enumerate(mapping_values, start=1):
-                        # I열(9번째, 출고예정일) 이후의 값들은 생산팀이 수정했을 수 있으므로
-                        # '생산 접수' 상태로 초기화할지, 값을 보존할지 결정해야 함.
-                        # 사용자 요구사항: "초기값 - 로 입력해줘" -> 리셋 로직 적용
                         ws.cell(row=target_row_idx, column=col_idx, value=val)
                     updated_count += 1
                 else:
-                    # 신규 추가
                     ws.append(mapping_values)
                     added_count += 1
 
             wb.save(prod_path)
             wb.close()
-            
-            return True, f"신규: {added_count}건, 업데이트: {updated_count}건 처리되었습니다."
+            return True, f"신규: {added_count}건, 업데이트: {updated_count}건"
 
         except PermissionError:
-            return False, "생산 요청 파일이 열려있습니다. 파일을 닫고 다시 시도해주세요."
+            return False, "생산 요청 파일이 열려있습니다."
         except Exception as e:
             return False, f"생산 요청 내보내기 실패: {e}"

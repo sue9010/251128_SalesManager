@@ -20,32 +20,22 @@ class OrderView(ctk.CTkFrame):
         self.style_treeview()
         self.refresh_data()
 
+    # ... (create_widgets, style_treeview, refresh_data, open_add_popup 등 기존 코드 유지) ...
     def create_widgets(self):
         toolbar = ctk.CTkFrame(self, height=50, fg_color="transparent")
         toolbar.pack(fill="x", padx=20, pady=(20, 10))
-
         ctk.CTkLabel(toolbar, text="🛒 주문 관리 (수주)", font=FONTS["title"], text_color=COLORS["text"]).pack(side="left")
-
         self.entry_search = ctk.CTkEntry(toolbar, width=250, placeholder_text="관리번호, 업체명...")
         self.entry_search.pack(side="left", padx=(20, 10))
         self.entry_search.bind("<Return>", lambda e: self.refresh_data())
-
-        ctk.CTkButton(toolbar, text="검색", width=60, command=self.refresh_data, 
-                      fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="left")
-
-        # [신규] 버튼 추가됨
-        ctk.CTkButton(toolbar, text="+ 신규 주문", width=100, command=self.open_add_popup,
-                      fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"]).pack(side="right")
-
-        ctk.CTkButton(toolbar, text="새로고침", width=80, command=self.refresh_data,
-                      fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="right", padx=(0, 10))
+        ctk.CTkButton(toolbar, text="검색", width=60, command=self.refresh_data, fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="left")
+        ctk.CTkButton(toolbar, text="+ 신규 주문", width=100, command=self.open_add_popup, fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"]).pack(side="right")
+        ctk.CTkButton(toolbar, text="새로고침", width=80, command=self.refresh_data, fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="right", padx=(0, 10))
 
         tree_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"], corner_radius=10)
         tree_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
-
         scroll_y = ctk.CTkScrollbar(tree_frame, orientation="vertical")
         scroll_y.pack(side="right", fill="y", padx=(0, 5), pady=5)
-
         self.tree = ttk.Treeview(tree_frame, columns=self.display_cols, show="headings", yscrollcommand=scroll_y.set)
         self.tree.pack(fill="both", expand=True, padx=5, pady=5)
         scroll_y.configure(command=self.tree.yview)
@@ -60,7 +50,6 @@ class OrderView(ctk.CTkFrame):
 
         self.tree.bind("<Double-1>", self.on_double_click)
         self.tree.bind("<Button-3>", self.on_right_click)
-        
         self.context_menu = tk.Menu(self, tearoff=0)
         self.context_menu.add_command(label="상세 정보 수정", command=self.on_edit)
         self.context_menu.add_separator()
@@ -77,67 +66,40 @@ class OrderView(ctk.CTkFrame):
         style.map("Treeview", background=[('selected', COLORS["primary"][1])])
 
     def refresh_data(self):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-
+        for item in self.tree.get_children(): self.tree.delete(item)
         df = self.dm.df_data
         if df.empty: return
-
         keyword = self.entry_search.get().strip().lower()
-        
         target_status = ["주문", "생산중"]
         target_df = df[df["Status"].isin(target_status)]
-        
         if target_df.empty: return
-
         target_df = target_df.sort_values(by="수주일", ascending=False)
-
         for _, row in target_df.iterrows():
             if keyword:
                 matched = False
                 for col in Config.SEARCH_TARGET_COLS:
                     if keyword in str(row.get(col, "")).lower():
-                        matched = True
-                        break
+                        matched = True; break
                 if not matched: continue
-
             try:
                 amt = float(str(row.get("합계금액", 0)).replace(",",""))
                 fmt_amt = f"{amt:,.0f}"
-            except:
-                fmt_amt = str(row.get("합계금액", "-"))
-
-            values = [
-                row.get("관리번호"),
-                row.get("업체명"),
-                row.get("모델명"),
-                row.get("수량"),
-                fmt_amt,
-                row.get("수주일"),
-                row.get("출고예정일"),
-                row.get("Status")
-            ]
+            except: fmt_amt = str(row.get("합계금액", "-"))
+            values = [row.get("관리번호"), row.get("업체명"), row.get("모델명"), row.get("수량"), fmt_amt, row.get("수주일"), row.get("출고예정일"), row.get("Status")]
             self.tree.insert("", "end", values=values)
 
-    # [신규] 주문 등록 팝업 호출
-    def open_add_popup(self):
-        self.pm.open_quote_popup(None, default_status="주문")
-
-    def on_double_click(self, event):
-        self.on_edit()
-
+    def open_add_popup(self): self.pm.open_quote_popup(None, default_status="주문")
+    def on_double_click(self, event): self.on_edit()
     def on_right_click(self, event):
         item = self.tree.identify_row(event.y)
         if item:
             self.tree.selection_set(item)
             self.context_menu.post(event.x_root, event.y_root)
-
     def on_edit(self):
         selected = self.tree.selection()
         if not selected: return
         item = self.tree.item(selected[0])
         mgmt_no = item["values"][0]
-        # 수정 시에는 기존 상태를 유지하므로 default_status는 중요하지 않음 (하지만 명시 가능)
         self.pm.open_quote_popup(mgmt_no) 
 
     def on_start_production(self):
@@ -146,6 +108,7 @@ class OrderView(ctk.CTkFrame):
     def on_ready_delivery(self):
         self._update_status("납품대기", "납품 대기 상태로 변경되었습니다.\n'납품 관리' 메뉴에서 확인 가능합니다.")
 
+    # [수정] 트랜잭션 적용
     def _update_status(self, new_status, success_msg):
         selected = self.tree.selection()
         if not selected: return
@@ -154,20 +117,13 @@ class OrderView(ctk.CTkFrame):
         mgmt_no = item["values"][0]
         
         if messagebox.askyesno("상태 변경", f"관리번호 [{mgmt_no}] 및 관련 항목들의 상태를 '{new_status}'(으)로 변경하시겠습니까?"):
-            df = self.dm.df_data
-            # 동일한 관리번호를 가진 모든 행 검색
-            mask = df["관리번호"] == mgmt_no
             
-            if mask.any():
-                # [NEW] 생산중 상태로 변경 시 생산요청 파일로 일괄 내보내기 시도
-                if new_status == "생산중":
-                    # 출고예정일은 초기값 '-'로 설정 (입력 안 받음)
-                    self.dm.df_data.loc[mask, "출고예정일"] = "-"
-                    
-                    # 해당 관리번호의 모든 행 데이터 추출 (DataFrame -> List of dicts)
-                    target_rows = self.dm.df_data.loc[mask].to_dict('records')
-                    
-                    # 생산 요청 파일로 일괄 내보내기
+            # 생산 요청 파일 내보내기 로직 (트랜잭션 외부에서 수행 - 파일 잠금 최소화)
+            if new_status == "생산중":
+                df = self.dm.df_data
+                mask = df["관리번호"] == mgmt_no
+                if mask.any():
+                    target_rows = df.loc[mask].to_dict('records')
                     export_success, export_msg = self.dm.export_to_production_request(target_rows)
                     
                     if export_success:
@@ -176,12 +132,23 @@ class OrderView(ctk.CTkFrame):
                         if not messagebox.askyesno("전송 실패", f"생산팀 요청 파일 전송에 실패했습니다.\n사유: {export_msg}\n\n계속 진행하시겠습니까? (상태만 변경됨)"):
                             return
 
-                # 상태 일괄 업데이트
-                self.dm.df_data.loc[mask, "Status"] = new_status
-                
-                if self.dm.save_to_excel():
-                    self.dm.add_log(f"상태변경({new_status})", f"번호 [{mgmt_no}] - 일괄 처리")
-                    messagebox.showinfo("완료", success_msg)
-                    self.refresh_data()
-                else:
-                    messagebox.showerror("오류", "데이터 저장에 실패했습니다.")
+            def update_logic(dfs):
+                mask = dfs["data"]["관리번호"] == mgmt_no
+                if mask.any():
+                    if new_status == "생산중":
+                        dfs["data"].loc[mask, "출고예정일"] = "-"
+                    
+                    dfs["data"].loc[mask, "Status"] = new_status
+                    
+                    # 로그
+                    new_log = self.dm._create_log_entry(f"상태변경({new_status})", f"번호 [{mgmt_no}] - 일괄 처리")
+                    dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
+                    return True, ""
+                return False, "데이터를 찾을 수 없습니다."
+
+            success, msg = self.dm._execute_transaction(update_logic)
+            if success:
+                messagebox.showinfo("완료", success_msg)
+                self.refresh_data()
+            else:
+                messagebox.showerror("오류", f"데이터 저장에 실패했습니다.\n{msg}")
