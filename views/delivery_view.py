@@ -127,25 +127,23 @@ class DeliveryView(ctk.CTkFrame):
             self.tree.insert("", "end", iid=idx, values=values)
 
     def on_process_delivery(self):
-        """납품 처리 팝업 호출 (다중 선택 지원)"""
+        """납품 처리 팝업 호출 (동일 관리번호에 대해서만)"""
         selected_items = self.tree.selection()
         if not selected_items:
             messagebox.showwarning("경고", "출고 처리할 항목을 하나 이상 선택해주세요.")
             return
         
-        # 선택된 인덱스 리스트 생성
-        selected_indices = [int(item) for item in selected_items]
+        # 첫 번째 선택 항목에서 관리번호 가져오기
+        first_item_idx = int(selected_items[0])
+        first_mgmt_no = self.dm.df_data.loc[first_item_idx, "관리번호"]
         
-        # [UX] 선택된 항목들의 업체명이 동일한지 확인 (권장 사항)
-        first_idx = selected_indices[0]
-        first_client = self.dm.df_data.loc[first_idx, "업체명"]
-        
-        for idx in selected_indices:
-            client = self.dm.df_data.loc[idx, "업체명"]
-            if client != first_client:
-                if not messagebox.askyesno("주의", "선택된 항목들의 고객사가 다릅니다.\n일괄 출고 처리를 계속하시겠습니까?\n(송장번호와 운송방법이 동일하게 적용됩니다)"):
-                    return
-                break
+        # 모든 선택된 항목이 동일한 관리번호를 가졌는지 확인
+        for item in selected_items:
+            item_idx = int(item)
+            mgmt_no = self.dm.df_data.loc[item_idx, "관리번호"]
+            if mgmt_no != first_mgmt_no:
+                messagebox.showwarning("주의", "하나의 주문(동일한 관리번호)에 대해서만 납품 처리가 가능합니다.")
+                return
 
-        # 팝업 호출 (리스트 전달)
-        self.pm.open_delivery_popup(selected_indices)
+        # 팝업 호출 (관리번호 전달)
+        self.pm.open_delivery_popup(first_mgmt_no)

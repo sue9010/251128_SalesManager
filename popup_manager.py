@@ -20,12 +20,16 @@ class PopupManager:
     def open_quote_popup(self, mgmt_no=None, default_status="견적"):
         win = QuotePopup(self.parent, self.dm, self.refresh_callback, mgmt_no, default_status)
 
-    def open_delivery_popup(self, row_indices):
+    def open_delivery_popup(self, mgmt_no):
         """
         납품 처리 팝업 열기
-        - row_indices: 선택된 행의 인덱스 리스트 (int list)
+        - mgmt_no: 관리번호
         """
-        win = DeliveryPopup(self.parent, self.dm, self.refresh_callback, row_indices)
+        win = DeliveryPopup(self.parent, self.dm, self.refresh_callback, mgmt_no)
 
-    def open_payment_popup(self, row_index):
-        win = PaymentPopup(self.parent, self.dm, self.refresh_callback, row_index)
+    def open_payment_popup(self, mgmt_no):
+        """
+        수금 처리 팝업 열기
+        - mgmt_no: 관리번호
+        """
+        win = PaymentPopup(self.parent, self.dm, self.refresh_callback, mgmt_no)

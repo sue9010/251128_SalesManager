@@ -20,7 +20,7 @@ class OrderView(ctk.CTkFrame):
         self.style_treeview()
         self.refresh_data()
 
-    # ... (create_widgets, style_treeview, refresh_data, open_add_popup 등 기존 코드 유지) ...
+
     def create_widgets(self):
         toolbar = ctk.CTkFrame(self, height=50, fg_color="transparent")
         toolbar.pack(fill="x", padx=20, pady=(20, 10))

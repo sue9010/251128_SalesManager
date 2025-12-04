@@ -1,260 +1,111 @@
 import tkinter as tk
 from datetime import datetime
-from tkinter import filedialog, messagebox
+from tkinter import messagebox
 
 import customtkinter as ctk
 import pandas as pd
 
-from config import Config
-from styles import COLORS, FONT_FAMILY, FONTS
+from popups.base_popup import BasePopup
+from styles import COLORS, FONTS
 from export_manager import ExportManager
 
-
-class AutocompleteEntry(ctk.CTkEntry):
-    def __init__(self, master, completevalues=None, command=None, **kwargs):
-        super().__init__(master, **kwargs)
-        self.completevalues = completevalues or []
-        self.command = command
-        self.listbox_window = None
-        self.listbox = None
-        
-        self.bind("<KeyRelease>", self._on_key_release)
-        self.bind("<Down>", self._on_down)
-        self.bind("<FocusOut>", self._on_focus_out)
-
-    def update_values(self, values):
-        self.completevalues = values
-
-    def _on_key_release(self, event):
-        if event.keysym in ["Up", "Down", "Return", "Escape", "Tab"]: return
-        self._update_listbox()
-
-    def _update_listbox(self):
-        typed = self.get()
-        if not typed:
-            data = self.completevalues
-        else:
-            data = [v for v in self.completevalues if typed.lower() in v.lower()]
-            
-        if not data:
-            self._close_listbox()
-            return
-            
-        if self.listbox_window is None:
-            self.listbox_window = tk.Toplevel(self)
-            self.listbox_window.wm_overrideredirect(True)
-            self.listbox_window.attributes("-topmost", True)
-            
-            self.listbox = tk.Listbox(
-                self.listbox_window, 
-                font=(FONT_FAMILY, 11), 
-                height=6, 
-                selectmode="browse",
-                bg=COLORS["bg_medium"][1] if ctk.get_appearance_mode() == "Dark" else COLORS["bg_medium"][0],
-                fg=COLORS["text"][1] if ctk.get_appearance_mode() == "Dark" else COLORS["text"][0],
-                selectbackground=COLORS["primary"][1] if ctk.get_appearance_mode() == "Dark" else COLORS["primary"][0],
-                selectforeground="white",
-                relief="flat",
-                borderwidth=1
-            )
-            self.listbox.pack(fill="both", expand=True)
-            
-            self.listbox.bind("<<ListboxSelect>>", self._on_select)
-            self.listbox.bind("<Return>", self._on_select)
-            self.listbox.bind("<Right>", self._on_select)
-            self.listbox.bind("<Escape>", lambda e: self._close_listbox())
-            
-        x = self.winfo_rootx()
-        y = self.winfo_rooty() + self.winfo_height() + 2
-        w = self.winfo_width()
-        
-        h = min(len(data), 8) * 22 
-        self.listbox_window.geometry(f"{w}x{h}+{x}+{y}")
-        
-        self.listbox.delete(0, "end")
-        for item in data:
-            self.listbox.insert("end", item)
-
-    def _on_down(self, event):
-        if self.listbox_window:
-            self.listbox.focus_set()
-            self.listbox.selection_set(0)
-            
-    def _on_select(self, event):
-        if not self.listbox: return
-        try:
-            selection = self.listbox.curselection()
-            if selection:
-                value = self.listbox.get(selection[0])
-                self.delete(0, "end")
-                self.insert(0, value)
-                self._close_listbox()
-                if self.command:
-                    self.command(value)
-        except: pass
-        
-    def _close_listbox(self):
-        if self.listbox_window:
-            self.listbox_window.destroy()
-            self.listbox_window = None
-            self.listbox = None
-            
-    def _on_focus_out(self, event):
-        self.after(150, self._check_focus)
-        
-    def _check_focus(self):
-        if self.listbox_window:
-            try:
-                focus_widget = self.winfo_toplevel().focus_get()
-                if focus_widget != self.listbox:
-                    self._close_listbox()
-            except:
-                self._close_listbox()
-
-
-class QuotePopup(ctk.CTkToplevel):
+class QuotePopup(BasePopup):
     def __init__(self, parent, data_manager, refresh_callback, mgmt_no=None, default_status="견적"):
-        super().__init__(parent)
-        self.dm = data_manager
-        self.refresh_callback = refresh_callback
-        self.mgmt_no = mgmt_no
         self.default_status = default_status
-        
         self.export_manager = ExportManager()
         
-        if mgmt_no:
-            mode_text = "상세 정보 수정"
-        else:
-            mode_text = "신규 주문 등록" if default_status == "주문" else "신규 견적 등록"
-            
-        self.title(f"{mode_text} - Sales Manager")
-        self.geometry("1100x850")
-        
-        self.item_rows = [] 
-        self.all_clients = []
-        
-        self.create_widgets()
-        self.load_clients()
-        
-        if self.mgmt_no:
-            self.load_data()
-        else:
-            self.generate_new_id()
+        super().__init__(parent, data_manager, refresh_callback, popup_title=default_status, mgmt_no=mgmt_no)
+
+        if not mgmt_no:
             self.entry_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
+            self.combo_status.set(self.default_status)
+    
+    def _create_widgets(self):
+        """UI 위젯의 생성과 배치를 오케스트레이션합니다."""
+        # 1. 위젯 생성
+        self._create_top_frame()  # BasePopup의 공통위젯 + QuotePopup의 전용 위젯 생성
+        self._create_items_frame()
+        self._create_bottom_frame()
+        self._create_action_buttons()
+        self._create_additional_frames() # 총계, 특이사항 등 추가 프레임 생성
 
-        self.transient(parent)
-        self.grab_set()
-        self.attributes("-topmost", True)
+        # 2. 레이아웃
+        self._layout_top_frame() # 오버라이드된 메서드를 통해 상단 프레임 전체 레이아웃
+    
+    def _create_top_frame(self):
+        """상단 프레임의 공통 위젯과 견적 전용 위젯을 '생성'합니다."""
+        super()._create_top_frame() # 공통 위젯들 (entry_id, combo_status 등) 생성
 
-    def create_widgets(self):
-        top_frame = ctk.CTkFrame(self, fg_color="transparent")
-        top_frame.pack(fill="x", padx=20, pady=15)
-
-        ctk.CTkLabel(top_frame, text="관리번호", font=FONTS["main_bold"]).grid(row=0, column=0, padx=5, sticky="w")
-        self.entry_id = ctk.CTkEntry(top_frame, width=150, font=FONTS["main"])
-        self.entry_id.grid(row=0, column=1, padx=5, sticky="w")
-        self.entry_id.configure(state="readonly")
-
+        # --- 견적/주문 전용 위젯 '생성' ---
         date_label_text = "주문일자" if self.default_status == "주문" else "견적일자"
-        ctk.CTkLabel(top_frame, text=date_label_text, font=FONTS["main_bold"]).grid(row=0, column=2, padx=5, sticky="w")
-        self.entry_date = ctk.CTkEntry(top_frame, width=120, font=FONTS["main"], placeholder_text="YYYY-MM-DD")
-        self.entry_date.grid(row=0, column=3, padx=5, sticky="w")
+        self.lbl_date = ctk.CTkLabel(self.top_frame, text=date_label_text, font=FONTS["main_bold"])
+        self.entry_date = ctk.CTkEntry(self.top_frame, width=200, font=FONTS["main"], placeholder_text="YYYY-MM-DD")
 
-        ctk.CTkLabel(top_frame, text="구분", font=FONTS["main_bold"]).grid(row=0, column=4, padx=5, sticky="w")
-        self.combo_type = ctk.CTkComboBox(top_frame, values=["내수", "수출"], width=100, font=FONTS["main"], command=self.on_type_change)
-        self.combo_type.grid(row=0, column=5, padx=5, sticky="w")
+        self.lbl_type = ctk.CTkLabel(self.top_frame, text="구분", font=FONTS["main_bold"])
+        self.combo_type = ctk.CTkComboBox(self.top_frame, values=["내수", "수출"], width=200, font=FONTS["main"], command=self.on_type_change)
         self.combo_type.set("내수")
 
-        ctk.CTkLabel(top_frame, text="상태", font=FONTS["main_bold"]).grid(row=0, column=6, padx=5, sticky="w")
-        self.combo_status = ctk.CTkComboBox(top_frame, values=["견적", "주문", "생산중", "납품대기", "납품완료/입금대기", "납품대기/입금완료", "완료", "취소", "보류"], width=120, font=FONTS["main"])
-        self.combo_status.grid(row=0, column=7, padx=5, sticky="w")
-        self.combo_status.set(self.default_status)
-
-        ctk.CTkLabel(top_frame, text="고객사", font=FONTS["main_bold"]).grid(row=1, column=0, padx=5, pady=10, sticky="w")
-        
-        self.entry_client = AutocompleteEntry(top_frame, width=200, font=FONTS["main"], command=self.on_client_select)
-        self.entry_client.grid(row=1, column=1, padx=5, pady=10, sticky="w")
-
-        ctk.CTkLabel(top_frame, text="통화", font=FONTS["main_bold"]).grid(row=1, column=2, padx=5, pady=10, sticky="w")
-        self.combo_currency = ctk.CTkComboBox(top_frame, values=["KRW", "USD", "EUR", "CNY", "JPY"], width=100, font=FONTS["main"], command=self.on_currency_change)
-        self.combo_currency.grid(row=1, column=3, padx=5, pady=10, sticky="w")
+        self.lbl_currency = ctk.CTkLabel(self.top_frame, text="통화", font=FONTS["main_bold"])
+        self.combo_currency = ctk.CTkComboBox(self.top_frame, values=["KRW", "USD", "EUR", "CNY", "JPY"], width=200, font=FONTS["main"], command=self.on_currency_change)
         self.combo_currency.set("KRW")
 
-        ctk.CTkLabel(top_frame, text="세율(%)", font=FONTS["main_bold"]).grid(row=1, column=4, padx=5, pady=10, sticky="w")
-        self.entry_tax_rate = ctk.CTkEntry(top_frame, width=100, font=FONTS["main"])
-        self.entry_tax_rate.grid(row=1, column=5, padx=5, pady=10, sticky="w")
+        self.lbl_tax_rate = ctk.CTkLabel(self.top_frame, text="세율(%)", font=FONTS["main_bold"])
+        self.entry_tax_rate = ctk.CTkEntry(self.top_frame, width=200, font=FONTS["main"])
         self.entry_tax_rate.insert(0, "10")
-        self.entry_tax_rate.bind("<KeyRelease>", lambda e: self.calculate_totals())
+        self.entry_tax_rate.bind("<KeyRelease>", lambda e: self._calculate_totals())
 
-        ctk.CTkLabel(top_frame, text="프로젝트명", font=FONTS["main_bold"]).grid(row=2, column=0, padx=5, sticky="w")
-        self.entry_project = ctk.CTkEntry(top_frame, width=300, font=FONTS["main"])
-        self.entry_project.grid(row=2, column=1, columnspan=3, padx=5, sticky="ew")
-        
+        # 견적서 발행 버튼 생성
+        self.btn_export = ctk.CTkButton(self.top_frame, text="견적서 발행", command=self.export_quote, width=120, height=40,
+                                        fg_color=COLORS["warning"], hover_color="#D35400", text_color="white", font=FONTS["main_bold"])
+
+    def _layout_top_frame(self):
+        """상단 프레임의 모든 위젯을 올바른 순서로 '배치'합니다."""
+        # Row 0
+        self.lbl_id.grid(row=0, column=0, padx=5, sticky="w")
+        self.entry_id.grid(row=0, column=1, padx=5, sticky="w")
+        self.lbl_date.grid(row=0, column=2, padx=5, sticky="w")
+        self.entry_date.grid(row=0, column=3, padx=5, sticky="w")
+        self.lbl_type.grid(row=0, column=4, padx=5, sticky="w")
+        self.combo_type.grid(row=0, column=5, padx=5, sticky="w")
+        self.lbl_status.grid(row=0, column=6, padx=5, sticky="w")
+        self.combo_status.grid(row=0, column=7, padx=5, sticky="w")
+
+        # Row 1
+        self.lbl_client.grid(row=1, column=0, padx=5, pady=10, sticky="w")
+        self.entry_client.grid(row=1, column=1, padx=5, pady=10, sticky="w")
+        self.lbl_currency.grid(row=1, column=2, padx=5, pady=10, sticky="w")
+        self.combo_currency.grid(row=1, column=3, padx=5, pady=10, sticky="w")
+        self.lbl_tax_rate.grid(row=1, column=4, padx=5, pady=10, sticky="w")
+        self.entry_tax_rate.grid(row=1, column=5, padx=5, pady=10, sticky="w")
+
+        # Row 2
+        self.lbl_project.grid(row=2, column=0, padx=5, sticky="w")
+        self.entry_project.grid(row=2, column=1, columnspan=5, padx=5, sticky="ew")
+        self.btn_export.grid(row=2, column=6, columnspan=2, padx=5, sticky="e") # 버튼 배치
+
+    def _create_additional_frames(self):
+        """총계, 특이사항 등 전용 프레임을 생성하고 배치합니다."""
+        # 업체 특이사항 프레임 (품목 리스트 프레임 '앞'에 배치)
+        items_frame = self.winfo_children()[1]
         info_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"], height=40)
-        info_frame.pack(fill="x", padx=20, pady=(0, 10))
+        info_frame.pack(fill="x", padx=20, pady=(0, 10), before=items_frame)
         ctk.CTkLabel(info_frame, text="업체 특이사항:", font=FONTS["main_bold"], text_color=COLORS["primary"]).pack(side="left", padx=10, pady=5)
         self.lbl_client_note = ctk.CTkLabel(info_frame, text="-", font=FONTS["main"])
         self.lbl_client_note.pack(side="left", padx=5, pady=5)
 
-        list_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"])
-        list_frame.pack(fill="both", expand=True, padx=20, pady=5)
-
-        headers = ["품명", "모델명", "Description", "수량", "단가", "공급가액", "세액", "합계금액", "삭제"]
-        widths = [150, 150, 200, 60, 100, 100, 80, 100, 50]
-        header_frame = ctk.CTkFrame(list_frame, height=30, fg_color=COLORS["bg_dark"])
-        header_frame.pack(fill="x")
+        # 총계 라벨 프레임 (품목 추가 버튼 '앞'에 배치)
+        items_frame_content = items_frame.winfo_children()
+        add_item_button = next(w for w in items_frame_content if isinstance(w, ctk.CTkButton))
         
-        for i, (h, w) in enumerate(zip(headers, widths)):
-            lbl = ctk.CTkLabel(header_frame, text=h, width=w, font=FONTS["small"])
-            lbl.pack(side="left", padx=2)
+        total_frame = ctk.CTkFrame(items_frame, fg_color="transparent")
+        total_frame.pack(fill="x", pady=5, before=add_item_button)
 
-        self.scroll_items = ctk.CTkScrollableFrame(list_frame, fg_color="transparent")
-        self.scroll_items.pack(fill="both", expand=True)
-
-        btn_add_row = ctk.CTkButton(list_frame, text="+ 품목 추가", command=self.add_item_row, 
-                                    fg_color=COLORS["bg_light"], hover_color=COLORS["bg_light_hover"], text_color=COLORS["text"])
-        btn_add_row.pack(fill="x", pady=5)
-
-        bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
-        bottom_frame.pack(fill="x", padx=20, pady=5)
-
-        self.lbl_total_qty = ctk.CTkLabel(bottom_frame, text="총 수량: 0", font=FONTS["main_bold"])
+        self.lbl_total_qty = ctk.CTkLabel(total_frame, text="총 수량: 0", font=FONTS["main_bold"])
         self.lbl_total_qty.pack(side="left", padx=10)
-        self.lbl_total_amt = ctk.CTkLabel(bottom_frame, text="총 합계금액: 0", font=FONTS["header"], text_color=COLORS["primary"])
+        self.lbl_total_amt = ctk.CTkLabel(total_frame, text="총 합계금액: 0", font=FONTS["header"], text_color=COLORS["primary"])
         self.lbl_total_amt.pack(side="left", padx=20)
 
-        input_grid = ctk.CTkFrame(self, fg_color="transparent")
-        input_grid.pack(fill="x", padx=20, pady=(0, 10))
-        
-        ctk.CTkLabel(input_grid, text="주문요청사항:", font=FONTS["main"]).grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.entry_req = ctk.CTkEntry(input_grid, width=300)
-        self.entry_req.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        
-        ctk.CTkLabel(input_grid, text="비고:", font=FONTS["main"]).grid(row=0, column=2, padx=5, pady=5, sticky="w")
-        self.entry_note = ctk.CTkEntry(input_grid, width=300)
-        self.entry_note.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
-        
-        btn_frame = ctk.CTkFrame(self, fg_color="transparent", height=50)
-        btn_frame.pack(fill="x", padx=20, pady=20, side="bottom")
-
-        ctk.CTkButton(btn_frame, text="저장", command=self.save, width=120, height=40,
-                      fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], font=FONTS["main_bold"]).pack(side="right", padx=5)
-        
-        ctk.CTkButton(btn_frame, text="🖨️ 견적서 발행", command=self.export_quote, width=120, height=40,
-                      fg_color=COLORS["warning"], hover_color="#D35400", text_color="white", font=FONTS["main_bold"]).pack(side="right", padx=5)
-
-        ctk.CTkButton(btn_frame, text="취소", command=self.destroy, width=80, height=40,
-                      fg_color=COLORS["bg_light"], hover_color=COLORS["bg_light_hover"], text_color=COLORS["text"]).pack(side="right", padx=5)
-        
-        if self.mgmt_no:
-             ctk.CTkButton(btn_frame, text="삭제", command=self.delete_quote, width=80, height=40,
-                          fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left")
-
-    def load_clients(self):
-        self.all_clients = self.dm.df_clients["업체명"].unique().tolist()
-        self.entry_client.update_values(self.all_clients)
-
-    def on_client_select(self, client_name):
+    def _on_client_select(self, client_name):
         df = self.dm.df_clients
         row = df[df["업체명"] == client_name]
         if not row.empty:
@@ -267,7 +118,7 @@ class QuotePopup(ctk.CTkToplevel):
             if note == "nan" or not note: note = "-"
             self.lbl_client_note.configure(text=note)
 
-    def on_type_change(self, type_val): self.calculate_totals()
+    def on_type_change(self, type_val): self._calculate_totals()
 
     def on_currency_change(self, currency):
         if currency == "KRW":
@@ -278,9 +129,9 @@ class QuotePopup(ctk.CTkToplevel):
             self.entry_tax_rate.delete(0, "end")
             self.entry_tax_rate.insert(0, "0")
             self.combo_type.set("수출")
-        self.calculate_totals()
+        self._calculate_totals()
 
-    def generate_new_id(self):
+    def _generate_new_id(self):
         prefix_char = "O" if self.default_status == "주문" else "Q"
         today_str = datetime.now().strftime("%y%m%d")
         prefix = f"{prefix_char}{today_str}"
@@ -306,63 +157,23 @@ class QuotePopup(ctk.CTkToplevel):
         self.entry_id.insert(0, new_id)
         self.entry_id.configure(state="readonly")
 
-    def add_item_row(self, item_data=None):
-        row_frame = ctk.CTkFrame(self.scroll_items, fg_color="transparent", height=35)
-        row_frame.pack(fill="x", pady=2)
+    def _add_item_row(self, item_data=None):
+        row_widgets = super()._add_item_row()
 
-        e_item = ctk.CTkEntry(row_frame, width=150)
-        e_item.pack(side="left", padx=2)
-        e_model = ctk.CTkEntry(row_frame, width=150)
-        e_model.pack(side="left", padx=2)
-        e_desc = ctk.CTkEntry(row_frame, width=200)
-        e_desc.pack(side="left", padx=2)
-        e_qty = ctk.CTkEntry(row_frame, width=60, justify="center")
-        e_qty.pack(side="left", padx=2)
-        e_qty.insert(0, "1")
-        e_price = ctk.CTkEntry(row_frame, width=100, justify="right")
-        e_price.pack(side="left", padx=2)
-        e_price.insert(0, "0")
-        
-        e_supply = ctk.CTkEntry(row_frame, width=100, justify="right", fg_color=COLORS["bg_light"])
-        e_supply.pack(side="left", padx=2)
-        e_supply.configure(state="readonly")
-        e_tax = ctk.CTkEntry(row_frame, width=80, justify="right", fg_color=COLORS["bg_light"])
-        e_tax.pack(side="left", padx=2)
-        e_tax.configure(state="readonly")
-        e_total = ctk.CTkEntry(row_frame, width=100, justify="right", fg_color=COLORS["bg_light"], text_color=COLORS["primary"])
-        e_total.pack(side="left", padx=2)
-        e_total.configure(state="readonly")
-        
-        btn_del = ctk.CTkButton(row_frame, text="X", width=40, fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"],
-                                command=lambda f=row_frame: self.delete_item_row(f))
-        btn_del.pack(side="left", padx=5)
+        row_widgets["qty"].insert(0, "1")
+        row_widgets["price"].insert(0, "0")
 
-        row_data = {
-            "frame": row_frame,
-            "item": e_item, "model": e_model, "desc": e_desc, "qty": e_qty, 
-            "price": e_price, "supply": e_supply, "tax": e_tax, "total": e_total
-        }
-        self.item_rows.append(row_data)
-
-        e_qty.bind("<KeyRelease>", lambda e: self.calculate_row(row_data))
-        e_price.bind("<KeyRelease>", lambda e, w=e_price, r=row_data: self.on_price_change(e, w, r))
+        row_widgets["qty"].bind("<KeyRelease>", lambda e, rw=row_widgets: self.calculate_row(rw))
+        row_widgets["price"].bind("<KeyRelease>", lambda e, w=row_widgets["price"], rw=row_widgets: self.on_price_change(e, w, rw))
 
         if item_data is not None:
-            e_item.insert(0, str(item_data.get("품목명", "")))
-            e_model.insert(0, str(item_data.get("모델명", "")))
-            e_desc.insert(0, str(item_data.get("Description", "")))
-            e_qty.delete(0, "end"); e_qty.insert(0, str(item_data.get("수량", 0)))
+            row_widgets["item"].insert(0, str(item_data.get("품목명", "")))
+            row_widgets["model"].insert(0, str(item_data.get("모델명", "")))
+            row_widgets["desc"].insert(0, str(item_data.get("Description", "")))
+            row_widgets["qty"].delete(0, "end"); row_widgets["qty"].insert(0, str(item_data.get("수량", 0)))
             price_val = float(item_data.get("단가", 0))
-            e_price.delete(0, "end"); e_price.insert(0, f"{int(price_val):,}")
-            self.calculate_row(row_data)
-
-    def delete_item_row(self, frame):
-        for item in self.item_rows:
-            if item["frame"] == frame:
-                self.item_rows.remove(item)
-                break
-        frame.destroy()
-        self.calculate_totals()
+            row_widgets["price"].delete(0, "end"); row_widgets["price"].insert(0, f"{int(price_val):,}")
+            self.calculate_row(row_widgets)
 
     def on_price_change(self, event, widget, row_data):
         val = widget.get().replace(",", "")
@@ -393,9 +204,9 @@ class QuotePopup(ctk.CTkToplevel):
             update_entry(row_data["tax"], tax)
             update_entry(row_data["total"], total)
         except ValueError: pass
-        self.calculate_totals()
+        self._calculate_totals()
 
-    def calculate_totals(self):
+    def _calculate_totals(self):
         total_qty = 0
         total_amt = 0
         for row in self.item_rows:
@@ -408,13 +219,14 @@ class QuotePopup(ctk.CTkToplevel):
         self.lbl_total_qty.configure(text=f"총 수량: {total_qty:,.0f}")
         self.lbl_total_amt.configure(text=f"총 합계금액: {total_amt:,.0f}")
 
-    def load_data(self):
+    def _load_data(self):
         df = self.dm.df_data
         rows = df[df["관리번호"] == self.mgmt_no]
         if rows.empty: return
         
         first = rows.iloc[0]
         self.entry_id.configure(state="normal")
+        self.entry_id.delete(0, "end")
         self.entry_id.insert(0, str(first["관리번호"]))
         self.entry_id.configure(state="readonly")
         
@@ -440,14 +252,13 @@ class QuotePopup(ctk.CTkToplevel):
 
         self.entry_project.insert(0, str(first.get("프로젝트명", "")))
         self.entry_req.insert(0, str(first.get("주문요청사항", "")).replace("nan", ""))
-        
         self.entry_note.insert(0, str(first.get("비고", "")))
         
         current_status = str(first.get("Status", self.default_status))
         self.combo_status.set(current_status)
         
-        self.on_client_select(client_name)
-        for _, row in rows.iterrows(): self.add_item_row(row)
+        self._on_client_select(client_name)
+        for _, row in rows.iterrows(): self._add_item_row(row)
 
     def save(self):
         mgmt_no = self.entry_id.get()
@@ -477,30 +288,19 @@ class QuotePopup(ctk.CTkToplevel):
             "Status": self.combo_status.get()
         }
         
-        if self.default_status == "주문":
-            common_data["수주일"] = self.entry_date.get()
-        else:
-            common_data["견적일"] = self.entry_date.get()
+        date_key = "수주일" if self.default_status == "주문" else "견적일"
+        common_data[date_key] = self.entry_date.get()
 
         for item in self.item_rows:
-            qty = float(item["qty"].get().replace(",","") or 0)
-            price = float(item["price"].get().replace(",","") or 0)
-            supply = float(item["supply"].get().replace(",","") or 0)
-            tax = float(item["tax"].get().replace(",","") or 0)
-            total = float(item["total"].get().replace(",","") or 0)
-            
             row_data = common_data.copy()
             row_data.update({
-                "품목명": item["item"].get(),
-                "모델명": item["model"].get(),
-                "Description": item["desc"].get(),
-                "수량": qty,
-                "단가": price,
-                "공급가액": supply,
-                "세액": tax,
-                "합계금액": total,
-                "기수금액": 0,
-                "미수금액": total
+                "품목명": item["item"].get(), "모델명": item["model"].get(), "Description": item["desc"].get(),
+                "수량": float(item["qty"].get().replace(",","") or 0),
+                "단가": float(item["price"].get().replace(",","") or 0),
+                "공급가액": float(item["supply"].get().replace(",","") or 0),
+                "세액": float(item["tax"].get().replace(",","") or 0),
+                "합계금액": float(item["total"].get().replace(",","") or 0),
+                "기수금액": 0, "미수금액": float(item["total"].get().replace(",","") or 0)
             })
             new_rows.append(row_data)
 
@@ -525,7 +325,8 @@ class QuotePopup(ctk.CTkToplevel):
             dfs["data"] = pd.concat([dfs["data"], new_df], ignore_index=True)
             
             action = "수정" if self.mgmt_no else "등록"
-            new_log = self.dm._create_log_entry(f"{self.default_status} {action}", f"번호 [{mgmt_no}] / 업체 [{client}]")
+            log_msg = f"{self.default_status} {action}: 번호 [{mgmt_no}] / 업체 [{client}]"
+            new_log = self.dm._create_log_entry(f"{self.default_status} {action}", log_msg)
             dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
             
             return True, ""
@@ -539,19 +340,21 @@ class QuotePopup(ctk.CTkToplevel):
         else:
             messagebox.showerror("실패", msg, parent=self)
 
-    def delete_quote(self):
-        if messagebox.askyesno("삭제 확인", "정말 이 데이터를 삭제하시겠습니까?", parent=self):
+    def delete(self):
+        if messagebox.askyesno("삭제 확인", f"정말 이 {self.popup_title} 데이터를 삭제하시겠습니까?", parent=self):
             def update_logic(dfs):
                 mask = dfs["data"]["관리번호"] == self.mgmt_no
                 if mask.any():
                     dfs["data"] = dfs["data"][~mask]
-                    new_log = self.dm._create_log_entry("삭제", f"번호 [{self.mgmt_no}] 삭제됨")
+                    log_msg = f"{self.popup_title} 삭제: 번호 [{self.mgmt_no}]"
+                    new_log = self.dm._create_log_entry("삭제", log_msg)
                     dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
                     return True, ""
                 return False, "삭제할 데이터를 찾을 수 없습니다."
 
             success, msg = self.dm._execute_transaction(update_logic)
             if success:
+                messagebox.showinfo("삭제 완료", "데이터가 삭제되었습니다.", parent=self)
                 self.refresh_callback()
                 self.destroy()
             else:
@@ -581,20 +384,13 @@ class QuotePopup(ctk.CTkToplevel):
         
         items = []
         for row in self.item_rows:
-            try:
-                qty = float(row["qty"].get().replace(",", "") or 0)
-                price = float(row["price"].get().replace(",", "") or 0)
-                amount = float(row["total"].get().replace(",", "") or 0)
-            except:
-                qty, price, amount = 0, 0, 0
-                
             items.append({
                 "item": row["item"].get(),
                 "model": row["model"].get(),
                 "desc": row["desc"].get(),
-                "qty": qty,
-                "price": price,
-                "amount": amount
+                "qty": float(row["qty"].get().replace(",", "") or 0),
+                "price": float(row["price"].get().replace(",", "") or 0),
+                "amount": float(row["total"].get().replace(",", "") or 0)
             })
 
         success, result = self.export_manager.export_quote_to_pdf(

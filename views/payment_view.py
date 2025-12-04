@@ -149,8 +149,15 @@ class PaymentView(ctk.CTkFrame):
             messagebox.showwarning("경고", "입금 처리할 항목을 선택해주세요.")
             return
         
-        # 선택된 항목의 iid 가져오기
+        # 선택된 항목의 iid(DataFrame 인덱스) 가져오기
         idx = int(selected[0])
         
-        # 팝업 매니저를 통해 입금 팝업 열기
-        self.pm.open_payment_popup(idx)
+        # 인덱스를 사용하여 관리번호 조회
+        try:
+            mgmt_no = self.dm.df_data.loc[idx, "관리번호"]
+        except (KeyError, IndexError):
+            messagebox.showerror("오류", "선택된 항목의 정보를 찾을 수 없습니다.")
+            return
+
+        # 팝업 매니저를 통해 입금 팝업 열기 (관리번호 전달)
+        self.pm.open_payment_popup(mgmt_no)
