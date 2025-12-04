@@ -1,6 +1,7 @@
 import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox, simpledialog, ttk
+import pandas as pd
 
 import customtkinter as ctk
 
