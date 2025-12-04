@@ -30,7 +30,10 @@ class OrderView(ctk.CTkFrame):
         self.entry_search.pack(side="left", padx=(20, 10))
         self.entry_search.bind("<Return>", lambda e: self.refresh_data())
         ctk.CTkButton(toolbar, text="검색", width=60, command=self.refresh_data, fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="left")
+        
+        # [수정] open_add_popup 연결
         ctk.CTkButton(toolbar, text="+ 신규 주문", width=100, command=self.open_add_popup, fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"]).pack(side="right")
+        
         ctk.CTkButton(toolbar, text="새로고침", width=80, command=self.refresh_data, fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="right", padx=(0, 10))
 
         tree_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"], corner_radius=10)
@@ -89,19 +92,24 @@ class OrderView(ctk.CTkFrame):
             values = [row.get("관리번호"), row.get("업체명"), row.get("모델명"), row.get("수량"), fmt_amt, row.get("수주일"), row.get("출고예정일"), row.get("Status")]
             self.tree.insert("", "end", values=values)
 
-    def open_add_popup(self): self.pm.open_quote_popup(None, default_status="주문")
+    # [수정] OrderPopup 호출로 변경
+    def open_add_popup(self): 
+        self.pm.open_order_popup(None)
+        
     def on_double_click(self, event): self.on_edit()
     def on_right_click(self, event):
         item = self.tree.identify_row(event.y)
         if item:
             self.tree.selection_set(item)
             self.context_menu.post(event.x_root, event.y_root)
+    
+    # [수정] OrderPopup 호출로 변경
     def on_edit(self):
         selected = self.tree.selection()
         if not selected: return
         item = self.tree.item(selected[0])
         mgmt_no = item["values"][0]
-        self.pm.open_quote_popup(mgmt_no) 
+        self.pm.open_order_popup(mgmt_no)
 
     def on_start_production(self):
         self._update_status("생산중", "생산/준비 단계로 변경되었습니다.")
@@ -153,3 +161,5 @@ class OrderView(ctk.CTkFrame):
                 self.refresh_data()
             else:
                 messagebox.showerror("오류", f"데이터 저장에 실패했습니다.\n{msg}")
+
+

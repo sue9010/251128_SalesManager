@@ -233,5 +233,8 @@ class TableView(ctk.CTkFrame):
         values = self.tree.item(item[0], "values")
         mgmt_no = values[0]
         
-        # 견적 팝업 열기 (기존 로직 활용)
-        self.pm.open_quote_popup(mgmt_no)
+        # [수정] 관리번호에 따라 적절한 팝업 열기
+        if str(mgmt_no).startswith("Q"):
+            self.pm.open_quote_popup(mgmt_no)
+        else:
+            self.pm.open_order_popup(mgmt_no)

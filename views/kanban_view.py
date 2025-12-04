@@ -96,7 +96,12 @@ class KanbanView(ctk.CTkFrame):
             w.bind("<Button-1>", lambda e, r=mgmt_no, s=col_name, t=drag_text, wi=card: self.start_drag(e, r, s, t, wi))
             w.bind("<B1-Motion>", self.do_drag)
             w.bind("<ButtonRelease-1>", self.stop_drag)
-            w.bind("<Double-1>", lambda e, r=mgmt_no: self.pm.open_quote_popup(r))
+            
+            # [수정] 관리번호에 따라 적절한 팝업 열기
+            if str(mgmt_no).startswith("Q"):
+                w.bind("<Double-1>", lambda e, r=mgmt_no: self.pm.open_quote_popup(r))
+            else:
+                w.bind("<Double-1>", lambda e, r=mgmt_no: self.pm.open_order_popup(r))
 
     def start_drag(self, event, mgmt_no, status, text, widget):
         self.drag_data.update({"item": widget, "mgmt_no": mgmt_no, "start_status": status, "text": text})
