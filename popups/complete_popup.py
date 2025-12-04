@@ -12,26 +12,24 @@ from config import Config
 class CompletePopup(BasePopup):
     def __init__(self, parent, data_manager, refresh_callback, mgmt_no):
         self.full_paths = {}
+        # 탭 뷰 참조 변수 초기화
+        self.tabview = None
         super().__init__(parent, data_manager, refresh_callback, popup_title="완료 주문 상세", mgmt_no=mgmt_no)
         
     def _create_widgets(self):
-        # [레이아웃 전략]
-        # 전체를 아우르는 메인 프레임 안에 섹션별로 카드를 배치합니다.
-        # 윈도우 배경색 설정
         self.configure(fg_color=COLORS["bg_dark"])
         
-        # 메인 컨테이너 (패딩을 주어 윈도우 테두리와 간격 확보)
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.pack(fill="both", expand=True, padx=20, pady=20)
         
-        # 1. 헤더 섹션 (프로젝트명, 관리번호, 상태, 고객사)
+        # 1. 헤더 섹션
         self._create_header(self.main_container)
         
-        # 2. 요약 대시보드 (카드 형태)
+        # 2. 요약 대시보드
         self._create_summary_cards(self.main_container)
         
-        # 3. 품목 리스트 (데이터 그리드)
-        self._create_items_table(self.main_container)
+        # [수정] 3. 탭 뷰 (품목 / 입금 이력 / 납품 이력)
+        self._create_tabs(self.main_container)
         
         # 4. 하단 섹션 (비고, 요청사항, 파일)
         self._create_footer(self.main_container)
@@ -39,13 +37,12 @@ class CompletePopup(BasePopup):
         # 5. 닫기 버튼
         self._create_action_buttons_custom(self.main_container)
 
-        self.geometry("1200x850")
+        self.geometry("1200x900") # 높이 약간 증가
 
     def _create_header(self, parent):
         header_frame = ctk.CTkFrame(parent, fg_color="transparent")
         header_frame.pack(fill="x", pady=(0, 20))
         
-        # 상단: 관리번호 & 상태 배지
         top_row = ctk.CTkFrame(header_frame, fg_color="transparent")
         top_row.pack(fill="x", anchor="w")
         
@@ -56,11 +53,9 @@ class CompletePopup(BasePopup):
                                        fg_color=COLORS["primary"], text_color="white", corner_radius=10, width=80)
         self.status_badge.pack(side="left", padx=10)
         
-        # 중단: 프로젝트명
         self.lbl_project = ctk.CTkLabel(header_frame, text="Project Name", font=FONTS["title"], anchor="w")
         self.lbl_project.pack(fill="x", pady=(5, 0))
         
-        # 하단: 고객사
         self.lbl_client = ctk.CTkLabel(header_frame, text="Client Name", font=FONTS["header"], text_color=COLORS["text_dim"], anchor="w")
         self.lbl_client.pack(fill="x")
 
@@ -68,13 +63,11 @@ class CompletePopup(BasePopup):
         card_frame = ctk.CTkFrame(parent, fg_color="transparent")
         card_frame.pack(fill="x", pady=(0, 20))
         
-        # 그리드 설정 (4열)
         card_frame.columnconfigure(0, weight=1)
         card_frame.columnconfigure(1, weight=1)
         card_frame.columnconfigure(2, weight=1)
         card_frame.columnconfigure(3, weight=1)
         
-        # 카드 생성 헬퍼
         def create_card(col, title, value_id, color=COLORS["bg_medium"], title_color=COLORS["text_dim"], value_color=COLORS["text"]):
             card = ctk.CTkFrame(card_frame, fg_color=color, corner_radius=10)
             card.grid(row=0, column=col, sticky="ew", padx=5)
@@ -84,46 +77,75 @@ class CompletePopup(BasePopup):
             lbl_val.pack(anchor="w", padx=15, pady=(0, 10))
             setattr(self, value_id, lbl_val)
             
-        # 1. 총 합계금액
         create_card(0, "총 합계금액", "lbl_amt_total", color=COLORS["bg_light"], value_color=COLORS["primary"])
-        # 2. 실 입금액
         create_card(1, "실 입금액", "lbl_amt_paid", color=COLORS["bg_light"], value_color=COLORS["success"])
-        # 3. 주요 날짜 (견적/수주)
         create_card(2, "견적일 / 수주일", "lbl_date_qs")
-        # 4. 주요 날짜 (출고/입금)
         create_card(3, "출고일 / 입금완료일", "lbl_date_dp")
 
-    def _create_items_table(self, parent):
-        # 컨테이너
-        table_container = ctk.CTkFrame(parent, fg_color=COLORS["bg_medium"], corner_radius=10)
-        table_container.pack(fill="both", expand=True, pady=(0, 20))
+    def _create_tabs(self, parent):
+        """[신규] 탭 뷰 생성 (품목, 입금 이력, 납품 이력)"""
+        self.tabview = ctk.CTkTabview(parent, height=300)
+        self.tabview.pack(fill="both", expand=True, pady=(0, 20))
         
-        # 타이틀
-        ctk.CTkLabel(table_container, text="품목 리스트", font=FONTS["header"]).pack(anchor="w", padx=20, pady=15)
+        self.tabview.add("품목 리스트")
+        self.tabview.add("입금 이력")
+        self.tabview.add("납품 이력")
         
-        # 헤더
+        # 1. 품목 리스트 탭 설정
+        self._setup_items_tab(self.tabview.tab("품목 리스트"))
+        
+        # 2. 입금 이력 탭 설정
+        self._setup_payment_history_tab(self.tabview.tab("입금 이력"))
+        
+        # 3. 납품 이력 탭 설정
+        self._setup_delivery_history_tab(self.tabview.tab("납품 이력"))
+
+    def _setup_items_tab(self, parent):
         headers = ["품명", "모델명", "Description", "수량", "단가", "공급가액", "세액", "합계금액"]
         widths = [150, 150, 200, 60, 100, 100, 80, 100]
         
-        header_frame = ctk.CTkFrame(table_container, height=35, fg_color=COLORS["bg_light"])
-        header_frame.pack(fill="x", padx=20)
+        header_frame = ctk.CTkFrame(parent, height=30, fg_color=COLORS["bg_light"])
+        header_frame.pack(fill="x", padx=5, pady=5)
         
         for h, w in zip(headers, widths):
-            lbl = ctk.CTkLabel(header_frame, text=h, width=w, font=FONTS["main_bold"], text_color=COLORS["text"])
-            lbl.pack(side="left", padx=2)
+            ctk.CTkLabel(header_frame, text=h, width=w, font=FONTS["main_bold"]).pack(side="left", padx=2)
             
-        # 리스트 (스크롤)
-        self.scroll_items = ctk.CTkScrollableFrame(table_container, fg_color="transparent", height=250)
-        self.scroll_items.pack(fill="both", expand=True, padx=10, pady=10)
+        self.scroll_items = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        self.scroll_items.pack(fill="both", expand=True, padx=5, pady=5)
+
+    def _setup_payment_history_tab(self, parent):
+        headers = ["일시", "구분", "입금액", "통화", "작업자", "비고"]
+        widths = [150, 100, 120, 60, 100, 200]
+        
+        header_frame = ctk.CTkFrame(parent, height=30, fg_color=COLORS["bg_light"])
+        header_frame.pack(fill="x", padx=5, pady=5)
+        
+        for h, w in zip(headers, widths):
+            ctk.CTkLabel(header_frame, text=h, width=w, font=FONTS["main_bold"]).pack(side="left", padx=2)
+            
+        self.scroll_payment = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        self.scroll_payment.pack(fill="both", expand=True, padx=5, pady=5)
+
+    def _setup_delivery_history_tab(self, parent):
+        headers = ["처리일시", "출고일", "품목명", "출고수량", "송장번호", "운송방법", "비고"]
+        widths = [150, 100, 200, 80, 120, 100, 150]
+        
+        header_frame = ctk.CTkFrame(parent, height=30, fg_color=COLORS["bg_light"])
+        header_frame.pack(fill="x", padx=5, pady=5)
+        
+        for h, w in zip(headers, widths):
+            ctk.CTkLabel(header_frame, text=h, width=w, font=FONTS["main_bold"]).pack(side="left", padx=2)
+            
+        self.scroll_delivery = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        self.scroll_delivery.pack(fill="both", expand=True, padx=5, pady=5)
 
     def _create_footer(self, parent):
         footer_frame = ctk.CTkFrame(parent, fg_color="transparent")
         footer_frame.pack(fill="x", pady=(0, 10))
         
-        footer_frame.columnconfigure(0, weight=3) # 비고/요청사항
-        footer_frame.columnconfigure(1, weight=2) # 파일
+        footer_frame.columnconfigure(0, weight=3) 
+        footer_frame.columnconfigure(1, weight=2) 
         
-        # 왼쪽: 텍스트 정보
         left_col = ctk.CTkFrame(footer_frame, fg_color=COLORS["bg_medium"], corner_radius=10)
         left_col.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         
@@ -135,7 +157,6 @@ class CompletePopup(BasePopup):
         self.entry_req = ctk.CTkEntry(left_col, fg_color=COLORS["bg_dark"], border_width=0, height=35)
         self.entry_req.pack(fill="x", padx=15, pady=(0, 15))
         
-        # 오른쪽: 파일 리스트
         right_col = ctk.CTkFrame(footer_frame, fg_color=COLORS["bg_medium"], corner_radius=10)
         right_col.grid(row=0, column=1, sticky="nsew")
         
@@ -152,19 +173,19 @@ class CompletePopup(BasePopup):
                       text_color=COLORS["text"]).pack(side="right")
 
     def _load_data(self):
+        # 1. 기본 데이터 로드
         df = self.dm.df_data
         rows = df[df["관리번호"].astype(str) == str(self.mgmt_no)]
         if rows.empty: return
 
         first = rows.iloc[0]
 
-        # 헤더 정보
+        # 헤더 & 배지
         self.lbl_id.configure(text=f"No. {first['관리번호']}")
         self.lbl_project.configure(text=first.get("프로젝트명", ""))
         self.lbl_client.configure(text=first.get("업체명", ""))
         self.status_badge.configure(text=first.get("Status", "Unknown"))
         
-        # 상태별 배지 색상 (예시)
         status = str(first.get("Status", ""))
         if "완료" in status: self.status_badge.configure(fg_color=COLORS["success"])
         elif "취소" in status: self.status_badge.configure(fg_color=COLORS["danger"])
@@ -198,14 +219,40 @@ class CompletePopup(BasePopup):
         self.entry_req.insert(0, str(first.get("주문요청사항", "")))
         self.entry_req.configure(state="readonly")
 
-        # 품목 리스트
+        # 2. 품목 리스트 로드
         for widget in self.scroll_items.winfo_children(): widget.destroy()
         for _, row in rows.iterrows():
             self._add_item_row(row)
 
-        # 파일 리스트
+        # [신규] 3. 입금 이력 로드
+        for widget in self.scroll_payment.winfo_children(): widget.destroy()
+        if not self.dm.df_payment.empty:
+            pay_rows = self.dm.df_payment[self.dm.df_payment["관리번호"].astype(str) == str(self.mgmt_no)]
+            if not pay_rows.empty:
+                # 최신순 정렬
+                pay_rows = pay_rows.sort_values(by="일시", ascending=False)
+                for _, p_row in pay_rows.iterrows():
+                    self._add_payment_row(p_row)
+            else:
+                ctk.CTkLabel(self.scroll_payment, text="입금 이력이 없습니다.", text_color=COLORS["text_dim"]).pack(pady=20)
+        else:
+            ctk.CTkLabel(self.scroll_payment, text="입금 이력이 없습니다.", text_color=COLORS["text_dim"]).pack(pady=20)
+
+        # [신규] 4. 납품 이력 로드
+        for widget in self.scroll_delivery.winfo_children(): widget.destroy()
+        if not self.dm.df_delivery.empty:
+            del_rows = self.dm.df_delivery[self.dm.df_delivery["관리번호"].astype(str) == str(self.mgmt_no)]
+            if not del_rows.empty:
+                del_rows = del_rows.sort_values(by="일시", ascending=False)
+                for _, d_row in del_rows.iterrows():
+                    self._add_delivery_row(d_row)
+            else:
+                ctk.CTkLabel(self.scroll_delivery, text="납품 이력이 없습니다.", text_color=COLORS["text_dim"]).pack(pady=20)
+        else:
+            ctk.CTkLabel(self.scroll_delivery, text="납품 이력이 없습니다.", text_color=COLORS["text_dim"]).pack(pady=20)
+
+        # 5. 파일 리스트 로드
         for widget in self.files_scroll.winfo_children(): widget.destroy()
-        
         has_files = False
         if self._add_file_row("주문서(발주서)", first.get("발주서경로")): has_files = True
         
@@ -217,29 +264,54 @@ class CompletePopup(BasePopup):
         if not has_files:
             ctk.CTkLabel(self.files_scroll, text="첨부 파일 없음", font=FONTS["small"], text_color=COLORS["text_dim"]).pack(pady=20)
 
+    # 행 추가 헬퍼 메서드들
+    def _create_cell(self, parent, val, width, justify="left", is_num=False, is_bold=False):
+        if is_num:
+            try: val = f"{float(val):,.0f}"
+            except: val = "0"
+        
+        font = FONTS["main_bold"] if is_bold else FONTS["main"]
+        lbl = ctk.CTkLabel(parent, text=str(val), width=width, font=font, 
+                           anchor="e" if justify=="right" else "w" if justify=="left" else "center")
+        lbl.pack(side="left", padx=2)
+
     def _add_item_row(self, item_data):
-        row_frame = ctk.CTkFrame(self.scroll_items, fg_color="transparent", height=35)
+        row_frame = ctk.CTkFrame(self.scroll_items, fg_color="transparent", height=30)
         row_frame.pack(fill="x", pady=2)
         
-        # 마우스 오버 효과를 위한 프레임 (선택 사항)
+        self._create_cell(row_frame, item_data.get("품목명", ""), 150, is_bold=True)
+        self._create_cell(row_frame, item_data.get("모델명", ""), 150)
+        self._create_cell(row_frame, item_data.get("Description", ""), 200)
+        self._create_cell(row_frame, item_data.get("수량", 0), 60, "center", True)
+        self._create_cell(row_frame, item_data.get("단가", 0), 100, "right", True)
+        self._create_cell(row_frame, item_data.get("공급가액", 0), 100, "right", True)
+        self._create_cell(row_frame, item_data.get("세액", 0), 80, "right", True)
+        self._create_cell(row_frame, item_data.get("합계금액", 0), 100, "right", True)
+
+    def _add_payment_row(self, row):
+        row_frame = ctk.CTkFrame(self.scroll_payment, fg_color="transparent", height=30)
+        row_frame.pack(fill="x", pady=2)
         
-        def create_cell(val, width, justify="left", is_num=False, is_bold=False):
-            if is_num:
-                try: val = f"{float(val):,.0f}"
-                except: val = "0"
-            
-            font = FONTS["main_bold"] if is_bold else FONTS["main"]
-            lbl = ctk.CTkLabel(row_frame, text=str(val), width=width, font=font, anchor="e" if justify=="right" else "w" if justify=="left" else "center")
-            lbl.pack(side="left", padx=2)
-            
-        create_cell(item_data.get("품목명", ""), 150, is_bold=True)
-        create_cell(item_data.get("모델명", ""), 150)
-        create_cell(item_data.get("Description", ""), 200)
-        create_cell(item_data.get("수량", 0), 60, "center", True)
-        create_cell(item_data.get("단가", 0), 100, "right", True)
-        create_cell(item_data.get("공급가액", 0), 100, "right", True)
-        create_cell(item_data.get("세액", 0), 80, "right", True)
-        create_cell(item_data.get("합계금액", 0), 100, "right", True)
+        # ["일시", "구분", "입금액", "통화", "작업자", "비고"]
+        self._create_cell(row_frame, row.get("일시", ""), 150)
+        self._create_cell(row_frame, row.get("구분", ""), 100, "center")
+        self._create_cell(row_frame, row.get("입금액", 0), 120, "right", True)
+        self._create_cell(row_frame, row.get("통화", ""), 60, "center")
+        self._create_cell(row_frame, row.get("작업자", ""), 100)
+        self._create_cell(row_frame, row.get("비고", ""), 200)
+
+    def _add_delivery_row(self, row):
+        row_frame = ctk.CTkFrame(self.scroll_delivery, fg_color="transparent", height=30)
+        row_frame.pack(fill="x", pady=2)
+        
+        # ["처리일시", "출고일", "품목명", "출고수량", "송장번호", "운송방법", "비고"]
+        self._create_cell(row_frame, row.get("일시", ""), 150)
+        self._create_cell(row_frame, row.get("출고일", ""), 100, "center")
+        self._create_cell(row_frame, row.get("품목명", ""), 200)
+        self._create_cell(row_frame, row.get("출고수량", 0), 80, "center", True)
+        self._create_cell(row_frame, row.get("송장번호", ""), 120)
+        self._create_cell(row_frame, row.get("운송방법", ""), 100)
+        self._create_cell(row_frame, row.get("비고", ""), 150)
 
     def _add_file_row(self, title, path):
         if path is None: path = ""
@@ -266,7 +338,7 @@ class CompletePopup(BasePopup):
         else:
             messagebox.showwarning("경고", f"파일 경로가 유효하지 않습니다.\n경로: {path}", parent=self)
 
-    # BasePopup 추상 메서드 구현 (사용하지 않음)
+    # BasePopup 추상 메서드 (사용 안함)
     def _create_top_frame(self): pass
     def _create_items_frame(self): pass
     def _create_bottom_frame(self): pass
