@@ -6,7 +6,9 @@ import pandas as pd
 
 from styles import COLORS, FONT_FAMILY, FONTS
 
+# ... (MultiSelectDropdown 클래스는 기존 코드 유지) ...
 class MultiSelectDropdown(ctk.CTkFrame):
+    # ... (생략) ...
     def __init__(self, parent, values, default_values=None, command=None, width=200):
         super().__init__(parent, fg_color="transparent")
         self.values = values
@@ -94,14 +96,12 @@ class TableView(ctk.CTkFrame):
         self.dm = data_manager
         self.pm = popup_manager
         
-        # 상태 목록 정의
         self.all_statuses = [
             "견적", "주문", "생산중", "납품대기", 
             "납품완료/입금대기", "납품대기/입금완료", 
             "완료", "취소", "보류"
         ]
         
-        # 기본 선택: 완료 제외
         self.default_statuses = [s for s in self.all_statuses if s != "완료"]
         
         self.create_widgets()
@@ -114,7 +114,6 @@ class TableView(ctk.CTkFrame):
         
         ctk.CTkLabel(header_frame, text="상태 필터:", font=FONTS["main_bold"], text_color=COLORS["text"]).pack(side="left", padx=(0, 10))
         
-        # 다중 선택 드롭다운
         self.status_filter = MultiSelectDropdown(
             header_frame, 
             values=self.all_statuses, 
@@ -124,16 +123,13 @@ class TableView(ctk.CTkFrame):
         )
         self.status_filter.pack(side="left", padx=5)
         
-        # 새로고침 버튼
         ctk.CTkButton(header_frame, text="새로고침", command=self.refresh_data, width=80, 
                       fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"], font=FONTS["main"]).pack(side="right")
 
         # 2. 테이블 (Treeview)
-        # Treeview 스타일링
         style = ttk.Style()
-        style.theme_use("default") # 기본 테마 사용 후 커스텀
+        style.theme_use("default")
         
-        # Treeview 색상 설정 (다크 모드 대응)
         mode = ctk.get_appearance_mode()
         bg_color = COLORS["bg_dark"][1] if mode == "Dark" else COLORS["bg_dark"][0]
         text_color = COLORS["text"][1] if mode == "Dark" else COLORS["text"][0]
@@ -154,67 +150,48 @@ class TableView(ctk.CTkFrame):
         style.map("Treeview", background=[("selected", COLORS["primary"][1] if mode == "Dark" else COLORS["primary"][0])], 
                   foreground=[("selected", "white")])
         
-        # 테이블 프레임
         table_frame = ctk.CTkFrame(self, fg_color="transparent")
         table_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
         
         columns = ("관리번호", "업체명", "모델명", "수량", "출고예정일", "Status")
         self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="browse")
         
-        # 컬럼 설정
         col_widths = {"관리번호": 100, "업체명": 150, "모델명": 200, "수량": 80, "출고예정일": 100, "Status": 120}
         for col in columns:
             self.tree.heading(col, text=col)
             self.tree.column(col, width=col_widths.get(col, 100), anchor="center" if col in ["관리번호", "수량", "출고예정일", "Status"] else "w")
             
-        # 스크롤바
         scrollbar = ctk.CTkScrollbar(table_frame, orientation="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
         
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        # 더블클릭 이벤트 (상세 보기 등)
         self.tree.bind("<Double-1>", self.on_double_click)
 
     def refresh_data(self):
-        # 기존 데이터 삭제
         for item in self.tree.get_children():
             self.tree.delete(item)
             
         df = self.dm.df_data
         if df.empty: return
         
-        # 선택된 상태 가져오기
         selected_statuses = self.status_filter.get_selected()
         
-        # 필터링 로직
         filtered_rows = []
         for _, row in df.iterrows():
             status = str(row.get("Status", "")).strip()
-            
-            # 상태 필터링
-            # 부분 일치 허용? 아니면 정확 일치? -> 정확 일치 권장하지만, 복합 상태(납품완료/입금대기 등) 고려
-            # 여기서는 리스트에 있는 값과 정확히 일치하거나, 포함되는지 확인
-            # 사용자 요청: "status가 몇 종류지... 그것들을 다 넣어줘" -> 정확 일치로 처리
-            
             if status in selected_statuses:
                 filtered_rows.append(row)
-            else:
-                # 예외 케이스: 데이터의 status가 리스트에 없는 새로운 값일 경우?
-                # 일단은 선택된 것만 보여줌.
-                pass
         
-        # 정렬: 출고예정일 기준 (날짜 없는 경우 뒤로)
         def sort_key(x):
             date_str = str(x.get("출고예정일", "")).strip()
             if not date_str or date_str == "-":
-                return "9999-99-99" # 날짜 없음 -> 맨 뒤
+                return "9999-99-99"
             return date_str
             
         filtered_rows.sort(key=sort_key)
         
-        # 데이터 삽입
         for row in filtered_rows:
             values = (
                 row["관리번호"],
@@ -232,9 +209,12 @@ class TableView(ctk.CTkFrame):
         
         values = self.tree.item(item[0], "values")
         mgmt_no = values[0]
+        status = values[5] # Status 컬럼
         
-        # [수정] 관리번호에 따라 적절한 팝업 열기
-        if str(mgmt_no).startswith("Q"):
+        # [수정] 상태별 팝업 분기 처리
+        if status == "완료":
+            self.pm.open_complete_popup(mgmt_no)
+        elif str(mgmt_no).startswith("Q"):
             self.pm.open_quote_popup(mgmt_no)
         else:
             self.pm.open_order_popup(mgmt_no)
