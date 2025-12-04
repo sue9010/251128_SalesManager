@@ -22,7 +22,7 @@ class DataManager:
         self.attachment_root = Config.DEFAULT_ATTACHMENT_ROOT
         self.production_request_path = Config.DEFAULT_PRODUCTION_REQUEST_PATH
         
-        # [수정] 이 부분이 누락되었을 수 있습니다. 확실하게 초기화합니다.
+        # [수정] 초기화 코드 유지
         self.order_request_dir = Config.DEFAULT_ORDER_REQUEST_DIR 
         
         self.current_theme = "Dark"
@@ -41,7 +41,6 @@ class DataManager:
                     self.current_theme = data.get("theme", "Dark")
                     self.attachment_root = data.get("attachment_root", Config.DEFAULT_ATTACHMENT_ROOT)
                     self.production_request_path = data.get("production_request_path", Config.DEFAULT_PRODUCTION_REQUEST_PATH)
-                    # 설정 파일에서 로드
                     self.order_request_dir = data.get("order_request_dir", Config.DEFAULT_ORDER_REQUEST_DIR)
             except: pass
 
@@ -64,9 +63,6 @@ class DataManager:
                 json.dump(data, f, ensure_ascii=False, indent=4)
         except Exception as e:
             print(f"설정 저장 실패: {e}")
-
-    # ... (나머지 메서드들은 기존과 동일하게 유지) ...
-    # ... (load_data, check_for_external_changes, _execute_transaction, _create_log_entry 등) ...
 
     def load_data(self):
         if not os.path.exists(self.current_excel_path):
@@ -275,12 +271,14 @@ class DataManager:
 
     def clean_old_logs(self): return True, "로그 정리 완료"
 
+    # [수정] 생산 요청 파일 내보내기 (규격 A~P열 맞춤)
     def export_to_production_request(self, rows_data):
         prod_path = self.production_request_path
         if not os.path.exists(prod_path):
             return False, f"생산 요청 파일을 찾을 수 없습니다.\n경로: {prod_path}"
 
         try:
+            # 엑셀 파일 열기
             wb = openpyxl.load_workbook(prod_path)
             if "Data" not in wb.sheetnames:
                 return False, "'Data' 시트가 존재하지 않습니다."
@@ -290,6 +288,7 @@ class DataManager:
             updated_count = 0
 
             for row_data in rows_data:
+                # 1. 고객사 특이사항 조회
                 client_name = row_data.get("업체명", "")
                 client_note = "-"
                 if not self.df_clients.empty:
@@ -298,17 +297,37 @@ class DataManager:
                         val = c_row.iloc[0].get("특이사항", "-")
                         if str(val) != "nan" and val: client_note = str(val)
 
+                # 2. 데이터 매핑 (A~P열)
+                # A: 관리번호, B: 고객사, C: 모델명, D: Description
+                # E: 수량, F: 주문요청사항, G: 특이사항(From DB), H: 주문일자(수주일)
+                # I~M: "-", N: "생산 접수", O: "-", P: "-"
+                
                 mgmt_no = str(row_data.get("관리번호", ""))
                 model_name = str(row_data.get("모델명", ""))
                 desc = str(row_data.get("Description", ""))
+                order_date = row_data.get("수주일", "-")
+                if not order_date or order_date == "nan": order_date = "-"
 
                 mapping_values = [
-                    mgmt_no, client_name, model_name, desc,
-                    row_data.get("수량", 0), row_data.get("주문요청사항", ""), client_note,
-                    row_data.get("수주일", ""), "-", "-", "-", "-", "-", "생산 접수",
-                    row_data.get("발주서경로", ""), "-"
+                    mgmt_no,                    # A
+                    client_name,                # B
+                    model_name,                 # C
+                    desc,                       # D
+                    row_data.get("수량", 0),    # E
+                    row_data.get("주문요청사항", "-"), # F
+                    client_note,                # G (Customer DB)
+                    order_date,                 # H
+                    "-",                        # I
+                    "-",                        # J
+                    "-",                        # K
+                    "-",                        # L
+                    "-",                        # M
+                    "생산 접수",                # N (Default)
+                    "-",                        # O (Default)
+                    "-"                         # P (Default)
                 ]
 
+                # 3. 중복 확인 (관리번호 & 모델명 & Description 기준)
                 target_row_idx = None
                 for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                     curr_mgmt = str(row[0]) if row[0] else ""
@@ -319,11 +338,14 @@ class DataManager:
                         target_row_idx = i
                         break
                 
+                # 4. 데이터 쓰기
                 if target_row_idx:
+                    # 업데이트
                     for col_idx, val in enumerate(mapping_values, start=1):
                         ws.cell(row=target_row_idx, column=col_idx, value=val)
                     updated_count += 1
                 else:
+                    # 추가 (Append)
                     ws.append(mapping_values)
                     added_count += 1
 
@@ -332,6 +354,6 @@ class DataManager:
             return True, f"신규: {added_count}건, 업데이트: {updated_count}건"
 
         except PermissionError:
-            return False, "생산 요청 파일이 열려있습니다."
+            return False, "생산 요청 파일이 열려있습니다. 파일을 닫고 다시 시도해주세요."
         except Exception as e:
             return False, f"생산 요청 내보내기 실패: {e}"
