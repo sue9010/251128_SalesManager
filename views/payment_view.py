@@ -102,15 +102,21 @@ class PaymentView(ctk.CTkFrame):
         if df.empty: return
 
         # 입금 관리 대상 필터링
-        # 1. 미수금액이 0보다 큰 건 (아직 돈을 다 못 받은 건)
-        # 2. 또는 상태가 '입금대기'가 포함된 건
         try:
             # 미수금액을 숫자로 변환 (에러 시 0)
             df["_unpaid"] = pd.to_numeric(df["미수금액"], errors='coerce').fillna(0)
             
-            # 필터 조건: 미수금이 남았거나, 상태 명칭에 입금대기가 있거나
-            mask = (df["_unpaid"] > 0) | (df["Status"].astype(str).str.contains("입금대기"))
-            target_df = df[mask].copy()
+            # [수정] 필터 조건 변경
+            # 1. 미수금이 남아있어야 함 (_unpaid > 0)
+            # 2. Status가 지정된 목록에 포함되어야 함
+            target_statuses = ["주문", "생산중", "납품대기", "납품완료/입금대기"]
+            
+            mask_unpaid = df["_unpaid"] > 0
+            mask_status = df["Status"].astype(str).isin(target_statuses)
+            
+            # 두 조건을 모두 만족해야 함 (AND)
+            target_df = df[mask_unpaid & mask_status].copy()
+            
         except Exception:
             # 변환 에러 시 전체 표시 (안전장치)
             target_df = df

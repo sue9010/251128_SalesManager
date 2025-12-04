@@ -35,15 +35,9 @@ class PaymentPopup(BasePopup):
     def _create_payment_specific_widgets(self):
         # --- 금액 정보 프레임 ---
         # [수정] pack 오류 방지를 위해 before 옵션 대신 순차적 배치 사용 고려
-        # 하지만 상단 프레임과 리스트 프레임 사이에 넣어야 하므로
-        # BasePopup의 구조상 top_frame 다음에 넣는 것이 자연스러움.
-        # 여기서는 안전하게 pack 후 순서 조정(lift/lower)보다는
-        # BasePopup의 위젯 생성 순서를 따르되, 적절한 위치에 삽입.
         
         summary_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"], corner_radius=10)
         # pack 순서: top_frame -> summary_frame -> items_frame -> bottom_frame -> btn_frame
-        # 현재 items_frame(리스트) 위에 넣기 위해 before 사용 시도했으나 오류 발생.
-        # 대안: items_frame의 마스터인 list_frame을 찾아서 그 앞에 pack
         
         try:
             # self.scroll_items의 부모가 list_frame임
@@ -125,8 +119,6 @@ class PaymentPopup(BasePopup):
             for w in widgets.values():
                 if isinstance(w, ctk.CTkEntry):
                     # [수정] 투명 색상 대신 기본 배경색 사용하거나 색상 설정 생략
-                    # 만약 배경과 섞이게 하고 싶다면 frame 색과 동일하게 설정해야 함
-                    # 여기서는 안전하게 state만 변경
                     w.configure(state="readonly")
             
             # 삭제 버튼 제거
@@ -151,14 +143,13 @@ class PaymentPopup(BasePopup):
                     if val == "nan": val = ""
                 
                 w = row_widgets[key]
-                # 이미 BasePopup에서 insert했을 수 있으니 안전하게 delete 후 insert
                 w.delete(0, "end")
                 w.insert(0, val)
 
             set_val("item", item_data.get("품목명", ""))
             set_val("model", item_data.get("모델명", ""))
             set_val("desc", item_data.get("Description", ""))
-            set_val("qty", item_data.get("수량", 0), is_num=True) # 수량은 소수점 가능하나 여기선 포맷팅 통일
+            set_val("qty", item_data.get("수량", 0), is_num=True)
             set_val("price", item_data.get("단가", 0), is_num=True)
             
             # Readonly 위젯들 잠시 풀고 입력
@@ -211,6 +202,9 @@ class PaymentPopup(BasePopup):
 
             indices = dfs["data"][mask].index
             
+            # [수정] 현재 상태 파악
+            original_status = str(dfs["data"].at[indices[0], "Status"])
+
             # 미수금액이 있는 항목들에 입금액 분배
             remaining_payment = payment_amount
             for idx in indices:
@@ -231,18 +225,26 @@ class PaymentPopup(BasePopup):
                     remaining_payment -= pay_for_item
 
             # 전체 미수금액 재계산 및 상태 업데이트
-            # 주의: 위 루프에서 업데이트된 값 기반으로 재계산
-            # 여기서는 간단히 다시 합산
             current_rows = dfs["data"].loc[indices]
             total_unpaid = pd.to_numeric(current_rows["미수금액"], errors='coerce').sum()
             
-            status = "완료" if total_unpaid < 1 else "납품완료/입금대기" # 1원 미만 오차 허용
+            # [수정] 상태 변경 로직 개선
+            if total_unpaid < 1:
+                # 완납 시
+                if original_status == "납품완료/입금대기":
+                    new_status = "완료"
+                else:
+                    new_status = "납품대기/입금완료"
+                
+                dfs["data"].loc[indices, "입금완료일"] = payment_date
+            else:
+                # 부분 납부 시: 상태 유지 (함부로 변경하지 않음)
+                new_status = original_status
+                # 만약 이전 로직처럼 강제 변경이 필요하다면 여기에 작성
             
-            dfs["data"].loc[indices, "Status"] = status
-            if status == "완료":
-                 dfs["data"].loc[indices, "입금완료일"] = payment_date
+            dfs["data"].loc[indices, "Status"] = new_status
 
-            log_msg = f"번호 [{self.mgmt_no}] / 입금액 [{payment_amount:,.0f}] / 처리 후 미수금 [{total_unpaid:,.0f}]"
+            log_msg = f"번호 [{self.mgmt_no}] / 입금액 [{payment_amount:,.0f}] / 처리 후 미수금 [{total_unpaid:,.0f}] / 상태 [{new_status}]"
             new_log = self.dm._create_log_entry("수금 처리", log_msg)
             dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
 
@@ -259,15 +261,13 @@ class PaymentPopup(BasePopup):
     
     # --- 사용하지 않는 메서드 ---
     def _generate_new_id(self):
-        # messagebox.showinfo("정보", "수금 팝업에서는 신규 생성을 지원하지 않습니다.", parent=self)
         pass
 
     def delete(self):
-        # messagebox.showinfo("정보", "수금 팝업에서는 삭제 기능을 지원하지 않습니다.", parent=self)
         pass
         
     def _on_client_select(self, client_name):
-        pass # 읽기 전용이므로 동작 없음
+        pass 
 
     def _calculate_totals(self):
-        pass # 읽기 전용이므로 동작 없음
+        pass
