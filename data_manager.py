@@ -271,14 +271,12 @@ class DataManager:
 
     def clean_old_logs(self): return True, "로그 정리 완료"
 
-    # [수정] 생산 요청 파일 내보내기 (규격 A~P열 맞춤)
     def export_to_production_request(self, rows_data):
         prod_path = self.production_request_path
         if not os.path.exists(prod_path):
             return False, f"생산 요청 파일을 찾을 수 없습니다.\n경로: {prod_path}"
 
         try:
-            # 엑셀 파일 열기
             wb = openpyxl.load_workbook(prod_path)
             if "Data" not in wb.sheetnames:
                 return False, "'Data' 시트가 존재하지 않습니다."
@@ -288,7 +286,6 @@ class DataManager:
             updated_count = 0
 
             for row_data in rows_data:
-                # 1. 고객사 특이사항 조회
                 client_name = row_data.get("업체명", "")
                 client_note = "-"
                 if not self.df_clients.empty:
@@ -297,11 +294,6 @@ class DataManager:
                         val = c_row.iloc[0].get("특이사항", "-")
                         if str(val) != "nan" and val: client_note = str(val)
 
-                # 2. 데이터 매핑 (A~P열)
-                # A: 관리번호, B: 고객사, C: 모델명, D: Description
-                # E: 수량, F: 주문요청사항, G: 특이사항(From DB), H: 주문일자(수주일)
-                # I~M: "-", N: "생산 접수", O: "-", P: "-"
-                
                 mgmt_no = str(row_data.get("관리번호", ""))
                 model_name = str(row_data.get("모델명", ""))
                 desc = str(row_data.get("Description", ""))
@@ -327,7 +319,6 @@ class DataManager:
                     "-"                         # P (Default)
                 ]
 
-                # 3. 중복 확인 (관리번호 & 모델명 & Description 기준)
                 target_row_idx = None
                 for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                     curr_mgmt = str(row[0]) if row[0] else ""
@@ -338,14 +329,11 @@ class DataManager:
                         target_row_idx = i
                         break
                 
-                # 4. 데이터 쓰기
                 if target_row_idx:
-                    # 업데이트
                     for col_idx, val in enumerate(mapping_values, start=1):
                         ws.cell(row=target_row_idx, column=col_idx, value=val)
                     updated_count += 1
                 else:
-                    # 추가 (Append)
                     ws.append(mapping_values)
                     added_count += 1
 
@@ -357,3 +345,52 @@ class DataManager:
             return False, "생산 요청 파일이 열려있습니다. 파일을 닫고 다시 시도해주세요."
         except Exception as e:
             return False, f"생산 요청 내보내기 실패: {e}"
+
+    # [NEW] 생산 요청일 동기화 메서드
+    def sync_production_dates(self):
+        if not os.path.exists(self.production_request_path):
+            print("생산 요청 파일을 찾을 수 없어 날짜 동기화를 건너뜁니다.")
+            return
+
+        try:
+            # openpyxl을 사용하여 데이터 읽기 (빠름)
+            wb = openpyxl.load_workbook(self.production_request_path, data_only=True)
+            if "Data" not in wb.sheetnames: return
+            ws = wb["Data"]
+            
+            # 관리번호(A열, index 0)와 출고예정일(I열, index 8) 매핑
+            # 2행부터 데이터 시작
+            date_map = {}
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                mgmt_no = str(row[0]) if row[0] else None
+                delivery_date = row[8] # I열 (0-based index 8)
+                
+                if mgmt_no and delivery_date:
+                    # 날짜 형식 처리
+                    if isinstance(delivery_date, datetime):
+                        date_str = delivery_date.strftime("%Y-%m-%d")
+                    else:
+                        date_str = str(delivery_date).strip()
+                        # "nan", "-", "" 등의 무효한 값 필터링
+                        if date_str.lower() == "nan" or date_str == "-" or not date_str:
+                            continue
+                            
+                    date_map[mgmt_no] = date_str
+            
+            wb.close()
+            
+            # self.df_data 업데이트
+            if not self.df_data.empty:
+                # '출고예정일' 컬럼이 있는지 확인
+                if '출고예정일' not in self.df_data.columns:
+                    self.df_data['출고예정일'] = "-"
+                
+                # 업데이트 로직 (apply보다 반복문이나 map이 안전할 수 있음)
+                for mgmt_no, new_date in date_map.items():
+                    # 해당 관리번호를 가진 모든 행 업데이트 (주문은 품목별로 여러 행일 수 있음)
+                    mask = self.df_data['관리번호'] == mgmt_no
+                    if mask.any():
+                        self.df_data.loc[mask, '출고예정일'] = new_date
+                        
+        except Exception as e:
+            print(f"생산 요청일 동기화 실패: {e}")

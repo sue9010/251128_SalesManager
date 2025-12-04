@@ -31,7 +31,6 @@ class OrderView(ctk.CTkFrame):
         self.entry_search.bind("<Return>", lambda e: self.refresh_data())
         ctk.CTkButton(toolbar, text="검색", width=60, command=self.refresh_data, fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="left")
         
-        # [수정] open_add_popup 연결
         ctk.CTkButton(toolbar, text="+ 신규 주문", width=100, command=self.open_add_popup, fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"]).pack(side="right")
         
         ctk.CTkButton(toolbar, text="새로고침", width=80, command=self.refresh_data, fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="right", padx=(0, 10))
@@ -70,14 +69,24 @@ class OrderView(ctk.CTkFrame):
         style.map("Treeview", background=[('selected', COLORS["primary"][1])])
 
     def refresh_data(self):
+        # [수정] 생산 요청일 동기화 추가
+        # 1. SalesList 데이터 다시 로드 (최신 상태)
+        # (이미 상위나 다른 곳에서 로드되었을 수 있지만, 명시적으로 로드하거나 이미 로드된 데이터 사용)
+        # 여기서는 self.dm.df_data를 사용하기 전에 동기화를 수행합니다.
+        
+        self.dm.sync_production_dates() # 생산 요청 파일에서 날짜 가져와서 메모리 업데이트
+        
         for item in self.tree.get_children(): self.tree.delete(item)
         df = self.dm.df_data
         if df.empty: return
+        
         keyword = self.entry_search.get().strip().lower()
         target_status = ["주문", "생산중"]
         target_df = df[df["Status"].isin(target_status)]
+        
         if target_df.empty: return
         target_df = target_df.sort_values(by="수주일", ascending=False)
+        
         for _, row in target_df.iterrows():
             if keyword:
                 matched = False
@@ -89,10 +98,19 @@ class OrderView(ctk.CTkFrame):
                 amt = float(str(row.get("합계금액", 0)).replace(",",""))
                 fmt_amt = f"{amt:,.0f}"
             except: fmt_amt = str(row.get("합계금액", "-"))
-            values = [row.get("관리번호"), row.get("업체명"), row.get("모델명"), row.get("수량"), fmt_amt, row.get("수주일"), row.get("출고예정일"), row.get("Status")]
+            
+            values = [
+                row.get("관리번호"), 
+                row.get("업체명"), 
+                row.get("모델명"), 
+                row.get("수량"), 
+                fmt_amt, 
+                row.get("수주일"), 
+                row.get("출고예정일"), # 동기화된 날짜가 표시됨
+                row.get("Status")
+            ]
             self.tree.insert("", "end", values=values)
 
-    # [수정] OrderPopup 호출로 변경
     def open_add_popup(self): 
         self.pm.open_order_popup(None)
         
@@ -103,7 +121,6 @@ class OrderView(ctk.CTkFrame):
             self.tree.selection_set(item)
             self.context_menu.post(event.x_root, event.y_root)
     
-    # [수정] OrderPopup 호출로 변경
     def on_edit(self):
         selected = self.tree.selection()
         if not selected: return
@@ -127,7 +144,7 @@ class OrderView(ctk.CTkFrame):
         
         if messagebox.askyesno("상태 변경", f"관리번호 [{mgmt_no}] 및 관련 항목들의 상태를 '{new_status}'(으)로 변경하시겠습니까?"):
             
-            # 생산 요청 파일 내보내기 로직 (트랜잭션 외부에서 수행 - 파일 잠금 최소화)
+            # 생산 요청 파일 내보내기 로직
             if new_status == "생산중":
                 df = self.dm.df_data
                 mask = df["관리번호"] == mgmt_no
@@ -161,5 +178,3 @@ class OrderView(ctk.CTkFrame):
                 self.refresh_data()
             else:
                 messagebox.showerror("오류", f"데이터 저장에 실패했습니다.\n{msg}")
-
-
