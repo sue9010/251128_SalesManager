@@ -93,7 +93,7 @@ class DeliveryView(ctk.CTkFrame):
         if df.empty: return
 
         keyword = self.entry_search.get().strip().lower()
-        target_status = ["생산중", "납품대기"]
+        target_status = ["생산중", "납품대기", "납품대기/입금완료"]
         target_df = df[df["Status"].astype(str).isin(target_status)]
         
         if target_df.empty: return

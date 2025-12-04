@@ -80,19 +80,15 @@ class PaymentPopup(BasePopup):
 
     def _load_data(self):
         df = self.dm.df_data
-        
-        # [수정] 여러 관리번호에 해당하는 데이터 로드
         rows = df[df["관리번호"].isin(self.mgmt_nos)].copy()
         
         if rows.empty: return
 
         first = rows.iloc[0]
 
-        # 기본 정보 로드
         self.entry_id.configure(state="normal")
         self.entry_id.delete(0, "end")
         
-        # [수정] 관리번호 표시 (다중일 경우)
         if len(self.mgmt_nos) > 1:
             self.entry_id.insert(0, f"{self.mgmt_nos[0]} 외 {len(self.mgmt_nos)-1}건")
         else:
@@ -118,7 +114,6 @@ class PaymentPopup(BasePopup):
             widget.insert(0, val)
             widget.configure(state="readonly")
 
-        # 품목 정보 로드
         for _, row in rows.iterrows():
             widgets = self._add_item_row(row)
             for w in widgets.values():
@@ -197,18 +192,12 @@ class PaymentPopup(BasePopup):
         payment_date = self.entry_pay_date.get()
 
         def update_logic(dfs):
-            # [수정] 다중 관리번호 처리
-            # 모든 대상 행을 찾음 (isin 사용)
             mask = dfs["data"]["관리번호"].isin(self.mgmt_nos)
             if not mask.any():
                 return False, "데이터를 찾을 수 없습니다."
 
-            # 대상 행들의 인덱스를 가져옴 (순서 보장을 위해 정렬 권장)
-            # 여기서는 출고일이나 관리번호 순 등으로 정렬하여 처리할 수도 있음
-            # 기본적으로 데이터프레임 순서(등록순)대로 처리
             indices = dfs["data"][mask].index
             
-            # 미수금액이 있는 항목들에 입금액 분배 (순차적 차감)
             remaining_payment = payment_amount
             processed_mgmts = set()
 
@@ -218,20 +207,49 @@ class PaymentPopup(BasePopup):
                 try: unpaid = float(dfs["data"].at[idx, "미수금액"])
                 except: unpaid = 0
                 
+                # [수정] 통화별 임계값 설정
+                currency = str(dfs["data"].at[idx, "통화"]).upper()
+                threshold = 200 if currency != "KRW" else 5000
+                
                 if unpaid > 0:
-                    pay_for_item = min(remaining_payment, unpaid)
+                    actual_pay = 0
+                    force_complete = False
                     
+                    if remaining_payment >= unpaid:
+                        actual_pay = unpaid
+                    else:
+                        diff = unpaid - remaining_payment
+                        # [수정] 설정한 임계값(threshold)과 비교
+                        if diff <= threshold:
+                            item_name = str(dfs["data"].at[idx, "품목명"])
+                            if messagebox.askyesno("수수료 처리 확인", 
+                                                   f"[{item_name}] 항목의 잔액이 {diff:,.0f} ({currency}) 남습니다.\n"
+                                                   f"이를 수수료로 간주하여 '완납' 처리하시겠습니까?\n"
+                                                   f"(예: 미수금 0 처리 / 아니오: 잔액 유지)"):
+                                force_complete = True
+                                actual_pay = unpaid
+                            else:
+                                actual_pay = remaining_payment
+                        else:
+                            actual_pay = remaining_payment
+
                     try: current_paid = float(dfs["data"].at[idx, "기수금액"])
                     except: current_paid = 0
                     
-                    dfs["data"].at[idx, "기수금액"] = current_paid + pay_for_item
-                    dfs["data"].at[idx, "미수금액"] = unpaid - pay_for_item
-                    remaining_payment -= pay_for_item
+                    if force_complete:
+                        dfs["data"].at[idx, "기수금액"] = current_paid + unpaid
+                        dfs["data"].at[idx, "미수금액"] = 0
+                        # 수수료 포함 완납이므로 해당 항목 미수금만큼 입금액에서 차감되었다고 가정하거나
+                        # 실제 입금된 돈만 차감하려면 remaining_payment -= actual_pay (여기서 actual_pay는 unpaid)
+                        # 하지만 잔액이 부족한데 unpaid만큼 뺐으니 remaining_payment는 음수가 됨 -> 0으로 보정
+                        remaining_payment = 0
+                    else:
+                        dfs["data"].at[idx, "기수금액"] = current_paid + actual_pay
+                        dfs["data"].at[idx, "미수금액"] = unpaid - actual_pay
+                        remaining_payment -= actual_pay
                     
                     processed_mgmts.add(dfs["data"].at[idx, "관리번호"])
 
-            # 상태 업데이트 (각 행별로 재계산)
-            # 주의: 분배 로직 루프 밖에서 다시 모든 대상 행을 순회하며 상태 결정
             for idx in indices:
                 try: 
                     row_unpaid = float(dfs["data"].at[idx, "미수금액"])
@@ -239,20 +257,16 @@ class PaymentPopup(BasePopup):
                 except: continue
 
                 if row_unpaid < 1:
-                    # 완납 시
                     if row_status == "납품완료/입금대기":
                         new_status = "완료"
                     else:
                         new_status = "납품대기/입금완료"
-                    
                     dfs["data"].at[idx, "입금완료일"] = payment_date
                 else:
-                    # 미납 시 (상태 유지)
                     new_status = row_status
                 
                 dfs["data"].at[idx, "Status"] = new_status
 
-            # 로그 기록
             mgmt_str = self.mgmt_nos[0]
             if len(self.mgmt_nos) > 1: mgmt_str += f" 외 {len(self.mgmt_nos)-1}건"
             
@@ -271,7 +285,6 @@ class PaymentPopup(BasePopup):
         else:
             messagebox.showerror("실패", f"저장에 실패했습니다: {msg}", parent=self)
     
-    # --- 사용하지 않는 메서드 ---
     def _generate_new_id(self): pass
     def delete(self): pass
     def _on_client_select(self, client_name): pass 
