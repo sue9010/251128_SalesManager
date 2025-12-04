@@ -22,10 +22,12 @@ class DataManager:
         self.attachment_root = Config.DEFAULT_ATTACHMENT_ROOT
         self.production_request_path = Config.DEFAULT_PRODUCTION_REQUEST_PATH
         
+        # [수정] 이 부분이 누락되었을 수 있습니다. 확실하게 초기화합니다.
+        self.order_request_dir = Config.DEFAULT_ORDER_REQUEST_DIR 
+        
         self.current_theme = "Dark"
         self.is_dev_mode = False
         
-        # [신규] 파일 변경 감지를 위한 타임스탬프
         self.last_file_timestamp = 0.0
         
         self.load_config()
@@ -39,19 +41,23 @@ class DataManager:
                     self.current_theme = data.get("theme", "Dark")
                     self.attachment_root = data.get("attachment_root", Config.DEFAULT_ATTACHMENT_ROOT)
                     self.production_request_path = data.get("production_request_path", Config.DEFAULT_PRODUCTION_REQUEST_PATH)
+                    # 설정 파일에서 로드
+                    self.order_request_dir = data.get("order_request_dir", Config.DEFAULT_ORDER_REQUEST_DIR)
             except: pass
 
-    def save_config(self, new_path=None, new_theme=None, new_attachment_dir=None, new_prod_path=None):
+    def save_config(self, new_path=None, new_theme=None, new_attachment_dir=None, new_prod_path=None, new_order_req_dir=None):
         if new_path: self.current_excel_path = new_path
         if new_theme: self.current_theme = new_theme
         if new_attachment_dir: self.attachment_root = new_attachment_dir
         if new_prod_path: self.production_request_path = new_prod_path
+        if new_order_req_dir: self.order_request_dir = new_order_req_dir
         
         data = {
             "excel_path": self.current_excel_path,
             "theme": self.current_theme,
             "attachment_root": self.attachment_root,
-            "production_request_path": self.production_request_path
+            "production_request_path": self.production_request_path,
+            "order_request_dir": self.order_request_dir
         }
         try:
             with open(Config.CONFIG_FILENAME, "w", encoding="utf-8") as f:
@@ -59,16 +65,14 @@ class DataManager:
         except Exception as e:
             print(f"설정 저장 실패: {e}")
 
-    # ---------------------------------------------------------
-    # [핵심] 트랜잭션 및 파일 로드
-    # ---------------------------------------------------------
+    # ... (나머지 메서드들은 기존과 동일하게 유지) ...
+    # ... (load_data, check_for_external_changes, _execute_transaction, _create_log_entry 등) ...
+
     def load_data(self):
         if not os.path.exists(self.current_excel_path):
-            # 파일이 없으면 빈 파일 생성 로직이 필요할 수 있음
             return False, "파일이 존재하지 않습니다."
 
         try:
-            # [신규] 타임스탬프 갱신
             current_mtime = os.path.getmtime(self.current_excel_path)
             
             with pd.ExcelFile(self.current_excel_path) as xls:
@@ -96,8 +100,6 @@ class DataManager:
                     self.df_memo_log = pd.DataFrame(columns=Config.MEMO_LOG_COLUMNS)
 
             self._preprocess_data()
-            
-            # 로드 성공 시 타임스탬프 업데이트
             self.last_file_timestamp = current_mtime
             
             return True, "데이터 로드 완료"
@@ -105,84 +107,54 @@ class DataManager:
             return False, f"오류 발생: {e}"
 
     def check_for_external_changes(self):
-        """파일이 외부에서 변경되었는지 확인"""
-        if not os.path.exists(self.current_excel_path):
-            return False
+        if not os.path.exists(self.current_excel_path): return False
         try:
             current_mtime = os.path.getmtime(self.current_excel_path)
-            if current_mtime > self.last_file_timestamp:
-                return True
-        except OSError:
-            pass
+            if current_mtime > self.last_file_timestamp: return True
+        except OSError: pass
         return False
 
     def _execute_transaction(self, update_logic_func):
-        """
-        데이터 충돌 방지를 위한 트랜잭션 함수
-        1. 최신 엑셀 파일 로드 (모든 시트)
-        2. update_logic_func 실행 (수정 로직 적용)
-        3. 엑셀 파일 저장
-        4. 메모리 데이터 갱신
-        """
         if not os.path.exists(self.current_excel_path):
             return False, "엑셀 파일이 존재하지 않습니다."
 
         try:
-            # 1. 최신 상태 읽기
             with pd.ExcelFile(self.current_excel_path) as xls:
-                # Clients
                 if Config.SHEET_CLIENTS in xls.sheet_names:
                     temp_clients = pd.read_excel(xls, Config.SHEET_CLIENTS)
                     temp_clients.columns = temp_clients.columns.str.strip()
-                else:
-                    temp_clients = pd.DataFrame(columns=Config.CLIENT_COLUMNS)
+                else: temp_clients = pd.DataFrame(columns=Config.CLIENT_COLUMNS)
 
-                # Data
                 if Config.SHEET_DATA in xls.sheet_names:
                     temp_data = pd.read_excel(xls, Config.SHEET_DATA)
                     temp_data.columns = temp_data.columns.str.strip()
-                else:
-                    temp_data = pd.DataFrame(columns=Config.DATA_COLUMNS)
+                else: temp_data = pd.DataFrame(columns=Config.DATA_COLUMNS)
 
-                # Log
                 if Config.SHEET_LOG in xls.sheet_names:
                     temp_log = pd.read_excel(xls, Config.SHEET_LOG)
-                else:
-                    temp_log = pd.DataFrame(columns=Config.LOG_COLUMNS)
+                else: temp_log = pd.DataFrame(columns=Config.LOG_COLUMNS)
 
-                # Memo & Memo Log
                 if Config.SHEET_MEMO in xls.sheet_names:
                     temp_memo = pd.read_excel(xls, Config.SHEET_MEMO)
-                else:
-                    temp_memo = pd.DataFrame(columns=Config.MEMO_COLUMNS)
+                else: temp_memo = pd.DataFrame(columns=Config.MEMO_COLUMNS)
                 
                 if Config.SHEET_MEMO_LOG in xls.sheet_names:
                     temp_memo_log = pd.read_excel(xls, Config.SHEET_MEMO_LOG)
-                else:
-                    temp_memo_log = pd.DataFrame(columns=Config.MEMO_LOG_COLUMNS)
+                else: temp_memo_log = pd.DataFrame(columns=Config.MEMO_LOG_COLUMNS)
 
-            # 전처리 (결측치 처리 등 - 저장 시 문제 없도록)
             for col in Config.DATA_COLUMNS:
                 if col not in temp_data.columns: temp_data[col] = "-"
             temp_data = temp_data.fillna("-")
             temp_clients = temp_clients.fillna("-")
 
-            # 2. 수정 로직 실행
-            # 딕셔너리로 전달: { "clients": df, "data": df, "log": df, ... }
             dfs = {
-                "clients": temp_clients,
-                "data": temp_data,
-                "log": temp_log,
-                "memo": temp_memo,
-                "memo_log": temp_memo_log
+                "clients": temp_clients, "data": temp_data, "log": temp_log,
+                "memo": temp_memo, "memo_log": temp_memo_log
             }
             
             success, msg = update_logic_func(dfs)
-            
-            if not success:
-                return False, msg
+            if not success: return False, msg
 
-            # 3. 파일 저장
             with pd.ExcelWriter(self.current_excel_path, engine="openpyxl") as writer:
                 dfs["clients"].to_excel(writer, sheet_name=Config.SHEET_CLIENTS, index=False)
                 dfs["data"].to_excel(writer, sheet_name=Config.SHEET_DATA, index=False)
@@ -190,7 +162,6 @@ class DataManager:
                 dfs["memo"].to_excel(writer, sheet_name=Config.SHEET_MEMO, index=False)
                 dfs["memo_log"].to_excel(writer, sheet_name=Config.SHEET_MEMO_LOG, index=False)
 
-            # 4. 내 메모리 갱신
             self.load_data()
             return True, "저장되었습니다."
 
@@ -200,7 +171,6 @@ class DataManager:
             return False, f"트랜잭션 오류: {e}"
 
     def _create_log_entry(self, action, details):
-        """트랜잭션 내부용 로그 엔트리 생성"""
         try: user = getpass.getuser()
         except: user = "Unknown"
         return {
@@ -210,13 +180,9 @@ class DataManager:
             "상세내용": details
         }
 
-    # ---------------------------------------------------------
-    # Helper Methods
-    # ---------------------------------------------------------
     def _preprocess_data(self):
         for col in Config.DATA_COLUMNS:
-            if col not in self.df_data.columns:
-                self.df_data[col] = "-"
+            if col not in self.df_data.columns: self.df_data[col] = "-"
         
         self.df_data = self.df_data.fillna("-")
         self.df_clients = self.df_clients.fillna("-")
@@ -233,10 +199,6 @@ class DataManager:
                 self.df_data[col] = self.df_data[col].fillna("-")
 
     def save_to_excel(self):
-        """
-        [주의] 단순 저장용. 동시성 제어가 필요 없는 경우에만 사용.
-        중요한 데이터 수정은 _execute_transaction 사용 권장.
-        """
         try:
             with pd.ExcelWriter(self.current_excel_path, engine="openpyxl") as writer:
                 self.df_clients.to_excel(writer, sheet_name=Config.SHEET_CLIENTS, index=False)
@@ -273,7 +235,6 @@ class DataManager:
             return None, str(e)
 
     def add_log(self, action, details):
-        """단순 로그 추가 (메모리상) - 트랜잭션 미사용 시"""
         try: user = getpass.getuser()
         except: user = "Unknown"
         new = {"일시": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "작업자": user, "구분": action, "상세내용": details}
@@ -315,7 +276,6 @@ class DataManager:
     def clean_old_logs(self): return True, "로그 정리 완료"
 
     def export_to_production_request(self, rows_data):
-        # ... (기존과 동일, 생략 가능하지만 완전성을 위해 유지) ...
         prod_path = self.production_request_path
         if not os.path.exists(prod_path):
             return False, f"생산 요청 파일을 찾을 수 없습니다.\n경로: {prod_path}"
@@ -336,8 +296,7 @@ class DataManager:
                     c_row = self.df_clients[self.df_clients["업체명"] == client_name]
                     if not c_row.empty:
                         val = c_row.iloc[0].get("특이사항", "-")
-                        if str(val) != "nan" and val:
-                            client_note = str(val)
+                        if str(val) != "nan" and val: client_note = str(val)
 
                 mgmt_no = str(row_data.get("관리번호", ""))
                 model_name = str(row_data.get("모델명", ""))

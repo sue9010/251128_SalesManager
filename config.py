@@ -25,8 +25,14 @@ class Config:
     DEFAULT_EXCEL_PATH = r"\\cox_biz\business\SalesManager\SalesList.xlsx"
     DEFAULT_ATTACHMENT_ROOT = r"\\cox_biz\business\SalesManager"
     
-    # [NEW] 생산 요청(출고관리) 파일 경로
+    # 생산 요청(출고관리) 파일 경로
     DEFAULT_PRODUCTION_REQUEST_PATH = r"\\cox_biz\business\SalesManager\생산 요청.xlsx"
+    
+    # 출고요청서 양식 파일 경로 (폼)
+    ORDER_REQUEST_FORM_PATH = r"\\cox_biz\business\SalesManager\forms\Production_request.xlsm"
+    
+    # [NEW] 출고요청서 저장 폴더 기본값
+    DEFAULT_ORDER_REQUEST_DIR = r"\\cox_biz\business\SalesManager\출고요청서"
     
     if not os.path.exists(DEFAULT_ATTACHMENT_ROOT):
         try:

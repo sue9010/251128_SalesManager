@@ -11,15 +11,19 @@ import pandas as pd
 from popups.base_popup import BasePopup
 from styles import COLORS, FONTS
 from config import Config
+from export_manager import ExportManager # Import 추가 확인
 
 class OrderPopup(BasePopup):
     def __init__(self, parent, data_manager, refresh_callback, mgmt_no=None):
-        self.full_paths = {}  # 파일 전체 경로 저장용
+        self.full_paths = {}
+        self.export_manager = ExportManager() # 인스턴스 생성
         super().__init__(parent, data_manager, refresh_callback, popup_title="주문", mgmt_no=mgmt_no)
 
         if not mgmt_no:
             self.entry_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
             self.combo_status.set("주문")
+            if hasattr(self, 'btn_export_order'):
+                self.btn_export_order.grid_remove()
     
     def _create_widgets(self):
         self._create_top_frame()
@@ -29,6 +33,9 @@ class OrderPopup(BasePopup):
         self._create_additional_frames()
         self._layout_top_frame()
     
+    # ... (_create_top_frame, _layout_top_frame 등 기존 코드 유지) ...
+    # ... 반드시 기존 코드와 동일하게 유지해야 함 ...
+
     def _create_top_frame(self):
         super()._create_top_frame()
 
@@ -48,7 +55,9 @@ class OrderPopup(BasePopup):
         self.entry_tax_rate.insert(0, "10")
         self.entry_tax_rate.bind("<KeyRelease>", lambda e: self._calculate_totals())
 
-        # 주문 팝업엔 견적서 발행 버튼 없음
+        # [신규] 출고요청서 발행 버튼 생성
+        self.btn_export_order = ctk.CTkButton(self.top_frame, text="출고요청서", command=self.export_order_request, width=120, height=40,
+                                        fg_color=COLORS["success"], hover_color="#26A65B", text_color="white", font=FONTS["main_bold"])
 
     def _layout_top_frame(self):
         self.lbl_id.grid(row=0, column=0, padx=5, sticky="w")
@@ -68,8 +77,13 @@ class OrderPopup(BasePopup):
         self.entry_tax_rate.grid(row=1, column=5, padx=5, pady=10, sticky="w")
 
         self.lbl_project.grid(row=2, column=0, padx=5, sticky="w")
-        self.entry_project.grid(row=2, column=1, columnspan=7, padx=5, sticky="ew")
+        self.entry_project.grid(row=2, column=1, columnspan=5, padx=5, sticky="ew")
+        
+        # [신규] 버튼 배치
+        self.btn_export_order.grid(row=2, column=6, columnspan=2, padx=5, sticky="e")
 
+    # ... (나머지 메서드 생략, 기존과 동일) ...
+    # ... (_create_bottom_frame, _create_additional_frames, _on_client_select 등) ...
     def _create_bottom_frame(self):
         self.input_grid = ctk.CTkFrame(self, fg_color="transparent")
         self.input_grid.pack(fill="x", padx=20, pady=(10, 10))
@@ -343,6 +357,12 @@ class OrderPopup(BasePopup):
         current_status = str(first.get("Status", "주문"))
         self.combo_status.set(current_status)
         
+        # [신규] 상태에 따라 버튼 표시
+        if current_status in ["주문", "생산중"]:
+            if hasattr(self, 'btn_export_order'): self.btn_export_order.grid()
+        else:
+            if hasattr(self, 'btn_export_order'): self.btn_export_order.grid_remove()
+        
         self._on_client_select(client_name)
         for _, row in rows.iterrows(): self._add_item_row(row)
 
@@ -361,7 +381,6 @@ class OrderPopup(BasePopup):
         except: tax_rate_val = 0
 
         new_rows = []
-        
         req_note_val = self.entry_req.get()
         
         order_file_path = ""
@@ -406,10 +425,10 @@ class OrderPopup(BasePopup):
                     try: os.makedirs(target_dir)
                     except Exception as e: print(f"Folder Create Error: {e}")
                 
-                # [수정] 파일명 생성 로직 변경: 발주서_업체명_관리번호.ext
                 ext = os.path.splitext(order_path)[1]
                 safe_client = "".join([c for c in client if c.isalnum() or c in (' ', '_')]).strip()
-                new_filename = f"발주서_{safe_client}_{mgmt_no}{ext}" # mgmt_no 사용
+                # 관리번호를 사용하여 파일명 생성
+                new_filename = f"발주서_{safe_client}_{mgmt_no}{ext}"
                 target_path = os.path.join(target_dir, new_filename)
                 
                 if os.path.abspath(order_path) != os.path.abspath(target_path):
@@ -453,6 +472,7 @@ class OrderPopup(BasePopup):
             messagebox.showerror("실패", msg, parent=self)
 
     def delete(self):
+        # (기존 delete 메서드 유지)
         if messagebox.askyesno("삭제 확인", f"정말 이 {self.popup_title} 데이터를 삭제하시겠습니까?", parent=self):
             def update_logic(dfs):
                 mask = dfs["data"]["관리번호"] == self.mgmt_no
@@ -471,3 +491,47 @@ class OrderPopup(BasePopup):
                 self.destroy()
             else:
                 messagebox.showerror("실패", msg, parent=self)
+
+    # [NEW] 출고요청서 발행 구현
+    def export_order_request(self):
+        client_name = self.entry_client.get()
+        if not client_name:
+            self.attributes("-topmost", False)
+            messagebox.showwarning("경고", "고객사를 선택해주세요.", parent=self)
+            self.attributes("-topmost", True)
+            return
+
+        client_row = self.dm.df_clients[self.dm.df_clients["업체명"] == client_name]
+        if client_row.empty:
+            self.attributes("-topmost", False)
+            messagebox.showerror("오류", "고객 정보를 찾을 수 없습니다.", parent=self)
+            self.attributes("-topmost", True)
+            return
+        
+        order_info = {
+            "client_name": client_name,
+            "mgmt_no": self.entry_id.get(),
+            "date": self.entry_date.get(),
+            "type": self.combo_type.get(),
+            "req_note": self.entry_req.get(),
+        }
+        
+        items = []
+        for row in self.item_rows:
+            items.append({
+                "item": row["item"].get(),
+                "model": row["model"].get(),
+                "desc": row["desc"].get(),
+                "qty": float(row["qty"].get().replace(",", "") or 0),
+            })
+
+        success, result = self.export_manager.export_order_request_to_pdf(
+            client_row.iloc[0], order_info, items
+        )
+        
+        self.attributes("-topmost", False)
+        if success:
+            messagebox.showinfo("성공", f"출고요청서가 생성되었습니다.\n{result}", parent=self)
+        else:
+            messagebox.showerror("실패", result, parent=self)
+        self.attributes("-topmost", True)

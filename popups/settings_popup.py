@@ -14,16 +14,20 @@ class SettingsPopup(ctk.CTkToplevel):
         self.refresh_callback = refresh_callback
         
         self.title("환경 설정")
-        self.geometry("500x750") # 높이 조정
+        # [수정] 창 크기를 넉넉하게 설정 (600x900)
+        self.geometry("600x900")
         
-        # 화면 중앙 배치
-        self.center_window(500, 750)
+        self.center_window(600, 900)
+        
+        # [수정] 모달 설정 (순서 중요)
+        self.transient(parent)
+        self.grab_set()
         
         self.create_widgets()
         
-        # 팝업 설정
-        self.transient(parent)
-        self.grab_set()
+        # [수정] 팝업을 최상위로 강제 이동 및 포커스
+        self.lift()
+        self.focus_force()
         self.attributes("-topmost", True)
 
     def center_window(self, width, height):
@@ -34,12 +38,21 @@ class SettingsPopup(ctk.CTkToplevel):
         self.geometry(f"{width}x{height}+{int(x)}+{int(y)}")
 
     def create_widgets(self):
-        # 컨텐츠 영역
-        parent = ctk.CTkFrame(self, fg_color="transparent")
-        parent.pack(fill="both", expand=True, padx=20, pady=20)
+        # [수정] 하단 저장 버튼을 먼저 배치 (스크롤 영역 밖, 하단 고정)
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent", height=60)
+        btn_frame.pack(side="bottom", fill="x", padx=20, pady=20)
+        
+        ctk.CTkButton(btn_frame, text="설정 저장 및 닫기", command=self.save, height=40,
+                      fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], font=FONTS["header"]).pack(fill="x")
+
+        # [수정] 스크롤 프레임을 나머지 영역에 꽉 차게 배치
+        self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll_frame.pack(side="top", fill="both", expand=True, padx=10, pady=10)
+        
+        parent = self.scroll_frame
 
         # 1. 테마 설정 섹션
-        ctk.CTkLabel(parent, text="테마 설정 (Appearance)", font=FONTS["header"]).pack(pady=(10, 10), anchor="w")
+        ctk.CTkLabel(parent, text="테마 설정 (Appearance)", font=FONTS["header"]).pack(pady=(10, 5), anchor="w")
         
         theme_frame = ctk.CTkFrame(parent, fg_color="transparent")
         theme_frame.pack(fill="x")
@@ -57,11 +70,10 @@ class SettingsPopup(ctk.CTkToplevel):
         )
         self.theme_switch.pack(fill="x")
 
-        # 구분선
-        ctk.CTkFrame(parent, height=1, fg_color=COLORS["border"]).pack(fill="x", pady=20)
+        ctk.CTkFrame(parent, height=1, fg_color=COLORS["border"]).pack(fill="x", pady=15)
 
         # 2. 엑셀 파일 경로 설정 섹션
-        ctk.CTkLabel(parent, text="영업 데이터 파일 경로 (SalesList)", font=FONTS["header"]).pack(pady=(0, 10), anchor="w")
+        ctk.CTkLabel(parent, text="영업 데이터 파일 경로 (SalesList)", font=FONTS["header"]).pack(pady=(0, 5), anchor="w")
 
         path_frame = ctk.CTkFrame(parent, fg_color="transparent")
         path_frame.pack(fill="x")
@@ -74,7 +86,7 @@ class SettingsPopup(ctk.CTkToplevel):
                       fg_color=COLORS["bg_medium"], text_color=COLORS["text"]).pack(side="right")
         
         # 3. 첨부 파일 저장 경로 설정 섹션
-        ctk.CTkLabel(parent, text="첨부 파일 저장 폴더 (Root)", font=FONTS["header"]).pack(pady=(20, 10), anchor="w")
+        ctk.CTkLabel(parent, text="첨부 파일 저장 폴더 (Root)", font=FONTS["header"]).pack(pady=(15, 5), anchor="w")
 
         attach_frame = ctk.CTkFrame(parent, fg_color="transparent")
         attach_frame.pack(fill="x")
@@ -86,11 +98,10 @@ class SettingsPopup(ctk.CTkToplevel):
         ctk.CTkButton(attach_frame, text="폴더선택", width=80, command=self.browse_folder, 
                       fg_color=COLORS["bg_medium"], text_color=COLORS["text"]).pack(side="right")
 
-        # 구분선
-        ctk.CTkFrame(parent, height=1, fg_color=COLORS["border"]).pack(fill="x", pady=20)
+        ctk.CTkFrame(parent, height=1, fg_color=COLORS["border"]).pack(fill="x", pady=15)
 
-        # [NEW] 4. 생산 요청 파일 경로 설정 (추가)
-        ctk.CTkLabel(parent, text="생산 요청 파일 경로 (출고관리)", font=FONTS["header"]).pack(pady=(0, 10), anchor="w")
+        # 4. 생산 요청 파일 경로 설정
+        ctk.CTkLabel(parent, text="생산 요청 파일 경로 (출고관리)", font=FONTS["header"]).pack(pady=(0, 5), anchor="w")
 
         prod_frame = ctk.CTkFrame(parent, fg_color="transparent")
         prod_frame.pack(fill="x")
@@ -102,10 +113,22 @@ class SettingsPopup(ctk.CTkToplevel):
         ctk.CTkButton(prod_frame, text="찾기", width=60, command=self.browse_production_file, 
                       fg_color=COLORS["bg_medium"], text_color=COLORS["text"]).pack(side="right")
 
-        # 구분선
-        ctk.CTkFrame(parent, height=1, fg_color=COLORS["border"]).pack(fill="x", pady=20)
+        # 5. 출고요청서 저장 폴더 설정 (이 부분이 잘려서 안 보였음)
+        ctk.CTkLabel(parent, text="출고요청서 저장 폴더 (PDF)", font=FONTS["header"]).pack(pady=(15, 5), anchor="w")
 
-        # 5. 개발자 모드 설정
+        order_req_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        order_req_frame.pack(fill="x")
+
+        self.order_req_path_entry = ctk.CTkEntry(order_req_frame, font=FONTS["main"])
+        self.order_req_path_entry.insert(0, self.dm.order_request_dir)
+        self.order_req_path_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+
+        ctk.CTkButton(order_req_frame, text="폴더선택", width=80, command=self.browse_order_req_folder, 
+                      fg_color=COLORS["bg_medium"], text_color=COLORS["text"]).pack(side="right")
+
+        ctk.CTkFrame(parent, height=1, fg_color=COLORS["border"]).pack(fill="x", pady=15)
+
+        # 6. 개발자 모드 설정
         dev_frame = ctk.CTkFrame(parent, fg_color="transparent")
         dev_frame.pack(fill="x")
         
@@ -120,14 +143,12 @@ class SettingsPopup(ctk.CTkToplevel):
             progress_color=COLORS["danger"]
         ).pack(side="left")
 
-        # 개발자 도구 버튼들 (개발자 모드일 때만 보임)
         self.dev_tools_frame = ctk.CTkFrame(parent, fg_color="transparent")
         if self.dm.is_dev_mode:
             self.show_dev_tools()
 
-        # 6. 하단 저장 버튼
-        ctk.CTkButton(self, text="설정 저장 및 닫기", command=self.save, height=40,
-                      fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], font=FONTS["header"]).pack(side="bottom", fill="x", padx=20, pady=20)
+        # 하단 빈 공간 확보 (스크롤 끝까지 내렸을 때 여유)
+        ctk.CTkFrame(parent, height=20, fg_color="transparent").pack()
 
     def show_dev_tools(self):
         self.dev_tools_frame.pack(fill="x", pady=(10, 0))
@@ -140,7 +161,6 @@ class SettingsPopup(ctk.CTkToplevel):
                       fg_color=COLORS["warning"], hover_color="#D35400", command=self.do_clean_logs).pack(side="right", fill="x", expand=True, padx=(5, 0))
 
     def change_theme(self, new_theme):
-        """테마 즉시 변경"""
         ctk.set_appearance_mode(new_theme)
 
     def browse_excel(self):
@@ -151,7 +171,6 @@ class SettingsPopup(ctk.CTkToplevel):
             self.path_entry.delete(0, "end")
             self.path_entry.insert(0, file_path)
 
-    # [NEW] 생산 요청 파일 브라우즈
     def browse_production_file(self):
         self.attributes("-topmost", False)
         file_path = filedialog.askopenfilename(parent=self, filetypes=[("Excel files", "*.xlsx;*.xls;*.xlsm")])
@@ -168,9 +187,17 @@ class SettingsPopup(ctk.CTkToplevel):
             self.attach_path_entry.delete(0, "end")
             self.attach_path_entry.insert(0, folder_path)
 
+    # [NEW] 출고요청서 폴더 브라우저
+    def browse_order_req_folder(self):
+        self.attributes("-topmost", False)
+        folder_path = filedialog.askdirectory(parent=self)
+        self.attributes("-topmost", True)
+        if folder_path:
+            self.order_req_path_entry.delete(0, "end")
+            self.order_req_path_entry.insert(0, folder_path)
+
     def toggle_dev_mode(self):
         if self.dev_var.get():
-            # 켜려고 할 때: 비밀번호 확인
             self.attributes("-topmost", False)
             pwd = simpledialog.askstring("관리자 인증", "관리자 비밀번호를 입력하세요:", show="*", parent=self)
             self.attributes("-topmost", True)
@@ -183,7 +210,6 @@ class SettingsPopup(ctk.CTkToplevel):
                 self.dev_var.set(False)
                 messagebox.showerror("인증 실패", "비밀번호가 올바르지 않습니다.", parent=self)
         else:
-            # 끌 때는 그냥 끔
             self.dm.set_dev_mode(False)
             self.dev_tools_frame.pack_forget()
 
@@ -208,22 +234,22 @@ class SettingsPopup(ctk.CTkToplevel):
         new_path = self.path_entry.get()
         new_theme = self.theme_var.get()
         new_attach = self.attach_path_entry.get()
-        # [NEW] 생산 요청 경로 가져오기
         new_prod_path = self.prod_path_entry.get()
+        new_order_req = self.order_req_path_entry.get() 
         
         if new_path:
             self.dm.save_config(
                 new_path=new_path, 
                 new_theme=new_theme, 
                 new_attachment_dir=new_attach,
-                new_prod_path=new_prod_path # [NEW] 저장 함수로 전달
+                new_prod_path=new_prod_path,
+                new_order_req_dir=new_order_req 
             )
             
             self.attributes("-topmost", False)
             messagebox.showinfo("설정 저장", "설정이 저장되었습니다.", parent=self)
             self.destroy()
             
-            # 메인 UI 갱신 (테마 변경 등 반영)
             if self.refresh_callback:
                 self.refresh_callback()
         else:
