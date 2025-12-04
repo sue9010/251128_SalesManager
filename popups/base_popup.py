@@ -143,37 +143,6 @@ class BasePopup(ctk.CTkToplevel):
         self.grab_set()
         self.attributes("-topmost", True)
 
-class BasePopup(ctk.CTkToplevel):
-    def __init__(self, parent, data_manager, refresh_callback, popup_title="Popup", mgmt_no=None):
-        super().__init__(parent)
-        self.dm = data_manager
-        self.refresh_callback = refresh_callback
-        self.mgmt_no = mgmt_no
-        self.popup_title = popup_title
-        
-        if mgmt_no:
-            mode_text = f"{popup_title} 상세 정보 수정"
-        else:
-            mode_text = f"신규 {popup_title} 등록"
-            
-        self.title(f"{mode_text} - Sales Manager")
-        self.geometry("1100x750")
-        
-        self.item_rows = [] 
-        self.all_clients = []
-        
-        self._create_widgets()
-        self._load_clients()
-        
-        if self.mgmt_no:
-            self._load_data()
-        else:
-            self._generate_new_id()
-
-        self.transient(parent)
-        self.grab_set()
-        self.attributes("-topmost", True)
-
     def _create_widgets(self):
         """UI 위젯을 생성하고 배치합니다."""
         self._create_top_frame()
@@ -235,20 +204,23 @@ class BasePopup(ctk.CTkToplevel):
         btn_add_row.pack(fill="x", pady=5)
 
     def _create_bottom_frame(self):
-        """주문요청사항, 비고 등 하단 정보 입력 위젯을 생성합니다."""
-        input_grid = ctk.CTkFrame(self, fg_color="transparent")
-        input_grid.pack(fill="x", padx=20, pady=(10, 10))
+        """
+        [수정] 하단 정보 입력 위젯 생성
+        기본적으로 '비고'란만 생성하고, '주문요청사항'은 제거합니다.
+        (필요 시 하위 클래스에서 오버라이드하여 추가)
+        """
+        self.input_grid = ctk.CTkFrame(self, fg_color="transparent")
+        self.input_grid.pack(fill="x", padx=20, pady=(10, 10))
         
-        ctk.CTkLabel(input_grid, text="주문요청사항:", font=FONTS["main"]).grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.entry_req = ctk.CTkEntry(input_grid, width=300)
-        self.entry_req.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        
-        ctk.CTkLabel(input_grid, text="비고:", font=FONTS["main"]).grid(row=0, column=2, padx=5, pady=5, sticky="w")
-        self.entry_note = ctk.CTkEntry(input_grid, width=300)
-        self.entry_note.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
+        # '주문요청사항' 제거하고 '비고'만 남김
+        ctk.CTkLabel(self.input_grid, text="비고:", font=FONTS["main"]).grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.entry_note = ctk.CTkEntry(self.input_grid, width=600) # 너비 확장
+        self.entry_note.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
-        input_grid.columnconfigure(1, weight=1)
-        input_grid.columnconfigure(3, weight=1)
+        # entry_req는 기본적으로 None으로 초기화해두어 오류 방지
+        self.entry_req = None
+
+        self.input_grid.columnconfigure(1, weight=1)
 
     def _create_action_buttons(self):
         """저장, 취소 등 액션 버튼을 생성합니다."""

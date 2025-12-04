@@ -83,6 +83,33 @@ class QuotePopup(BasePopup):
         self.entry_project.grid(row=2, column=1, columnspan=5, padx=5, sticky="ew")
         self.btn_export.grid(row=2, column=6, columnspan=2, padx=5, sticky="e") # 버튼 배치
 
+    def _create_bottom_frame(self):
+        """
+        [수정] 하단 프레임 생성 (오버라이드)
+        - 주문 상태일 때만 '주문요청사항' 표시
+        """
+        self.input_grid = ctk.CTkFrame(self, fg_color="transparent")
+        self.input_grid.pack(fill="x", padx=20, pady=(10, 10))
+        
+        current_col = 0
+        
+        # 주문 상태인 경우에만 '주문요청사항' 표시
+        if self.default_status == "주문":
+            ctk.CTkLabel(self.input_grid, text="주문요청사항:", font=FONTS["main"]).grid(row=0, column=current_col, padx=5, pady=5, sticky="w")
+            self.entry_req = ctk.CTkEntry(self.input_grid, width=300)
+            self.entry_req.grid(row=0, column=current_col+1, padx=5, pady=5, sticky="ew")
+            self.input_grid.columnconfigure(current_col+1, weight=1)
+            current_col += 2
+        else:
+            self.entry_req = None # 견적일 땐 None 처리
+
+        # 비고 (공통)
+        ctk.CTkLabel(self.input_grid, text="비고:", font=FONTS["main"]).grid(row=0, column=current_col, padx=5, pady=5, sticky="w")
+        self.entry_note = ctk.CTkEntry(self.input_grid, width=300)
+        self.entry_note.grid(row=0, column=current_col+1, padx=5, pady=5, sticky="ew")
+        
+        self.input_grid.columnconfigure(current_col+1, weight=1)
+
     def _create_additional_frames(self):
         """총계, 특이사항 등 전용 프레임을 생성하고 배치합니다."""
         # 업체 특이사항 프레임 (품목 리스트 프레임 '앞'에 배치)
@@ -254,7 +281,11 @@ class QuotePopup(BasePopup):
         self.entry_tax_rate.insert(0, tax_rate)
 
         self.entry_project.insert(0, str(first.get("프로젝트명", "")))
-        self.entry_req.insert(0, str(first.get("주문요청사항", "")).replace("nan", ""))
+        
+        # [수정] 주문요청사항 로드 (위젯이 존재할 때만)
+        if self.entry_req:
+            self.entry_req.insert(0, str(first.get("주문요청사항", "")).replace("nan", ""))
+            
         self.entry_note.insert(0, str(first.get("비고", "")))
         
         current_status = str(first.get("Status", self.default_status))
@@ -278,6 +309,10 @@ class QuotePopup(BasePopup):
         except: tax_rate_val = 0
 
         new_rows = []
+        
+        # [수정] 주문요청사항 저장 (위젯 없으면 빈값)
+        req_note_val = self.entry_req.get() if self.entry_req else ""
+        
         common_data = {
             "관리번호": mgmt_no,
             "구분": self.combo_type.get(),
@@ -286,7 +321,7 @@ class QuotePopup(BasePopup):
             "통화": self.combo_currency.get(),
             "환율": 1, 
             "세율(%)": tax_rate_val,
-            "주문요청사항": self.entry_req.get(),
+            "주문요청사항": req_note_val,
             "비고": self.entry_note.get(),
             "Status": self.combo_status.get()
         }
@@ -378,12 +413,15 @@ class QuotePopup(BasePopup):
             self.attributes("-topmost", True)
             return
         
+        # [수정] req_note 값 안전하게 가져오기 (None일 수 있음)
+        req_note_val = self.entry_req.get() if self.entry_req else ""
+
         quote_info = {
             "client_name": client_name,
             "mgmt_no": self.entry_id.get(),
             "date": self.entry_date.get(),
-            "req_note": self.entry_req.get(),
-            "note": self.entry_note.get()  # [추가] 비고 데이터
+            "req_note": req_note_val,
+            "note": self.entry_note.get()  # 비고 데이터
         }
         
         items = []
@@ -394,7 +432,8 @@ class QuotePopup(BasePopup):
                 "desc": row["desc"].get(),
                 "qty": float(row["qty"].get().replace(",", "") or 0),
                 "price": float(row["price"].get().replace(",", "") or 0),
-                "amount": float(row["total"].get().replace(",", "") or 0)
+                # [수정] 견적서 '금액' 란에 공급가액(supply) 전달 (합계금액인 total 대신)
+                "amount": float(row["supply"].get().replace(",", "") or 0)
             })
 
         success, result = self.export_manager.export_quote_to_pdf(
