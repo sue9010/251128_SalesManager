@@ -20,14 +20,38 @@ class PaymentPopup(BasePopup):
     def _create_widgets(self):
         super()._create_widgets()
         self._create_payment_specific_widgets()
+        
         # 수금 팝업에서는 품목을 편집/추가/삭제할 수 없도록 설정
-        self.scroll_items.master.children['!ctkbutton'].destroy() # 품목 추가 버튼 삭제
+        try:
+            # 안전하게 버튼 제거
+            for child in self.scroll_items.master.winfo_children():
+                if isinstance(child, ctk.CTkButton):
+                    child.destroy()
+        except:
+            pass
+            
         self.geometry("1100x800")
 
     def _create_payment_specific_widgets(self):
         # --- 금액 정보 프레임 ---
+        # [수정] pack 오류 방지를 위해 before 옵션 대신 순차적 배치 사용 고려
+        # 하지만 상단 프레임과 리스트 프레임 사이에 넣어야 하므로
+        # BasePopup의 구조상 top_frame 다음에 넣는 것이 자연스러움.
+        # 여기서는 안전하게 pack 후 순서 조정(lift/lower)보다는
+        # BasePopup의 위젯 생성 순서를 따르되, 적절한 위치에 삽입.
+        
         summary_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"], corner_radius=10)
-        summary_frame.pack(fill="x", padx=20, pady=(0, 10), before=self.winfo_children()[1])
+        # pack 순서: top_frame -> summary_frame -> items_frame -> bottom_frame -> btn_frame
+        # 현재 items_frame(리스트) 위에 넣기 위해 before 사용 시도했으나 오류 발생.
+        # 대안: items_frame의 마스터인 list_frame을 찾아서 그 앞에 pack
+        
+        try:
+            # self.scroll_items의 부모가 list_frame임
+            list_frame = self.scroll_items.master
+            summary_frame.pack(fill="x", padx=20, pady=(0, 10), before=list_frame)
+        except:
+            # 실패 시 그냥 pack (순서가 꼬일 수 있지만 오류는 안 남)
+            summary_frame.pack(fill="x", padx=20, pady=(0, 10))
 
         self.lbl_total_amount = self._add_summary_row(summary_frame, "총 합계금액", "0", 0)
         self.lbl_paid_amount = self._add_summary_row(summary_frame, "기수금액", "0", 1)
@@ -41,7 +65,12 @@ class PaymentPopup(BasePopup):
 
         # --- 입력 폼 프레임 ---
         form_frame = ctk.CTkFrame(self, fg_color="transparent")
-        form_frame.pack(fill="x", padx=20, pady=10, before=self.winfo_children()[-1]) # 버튼 프레임 전
+        # 버튼 프레임(마지막 위젯) 앞에 배치
+        try:
+            btn_frame = self.winfo_children()[-1]
+            form_frame.pack(fill="x", padx=20, pady=10, before=btn_frame)
+        except:
+            form_frame.pack(fill="x", padx=20, pady=10)
         
         ctk.CTkLabel(form_frame, text="입금액", font=FONTS["main_bold"]).grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.entry_payment = ctk.CTkEntry(form_frame, width=200, font=FONTS["header"])
@@ -68,45 +97,91 @@ class PaymentPopup(BasePopup):
 
         # 기본 정보 로드
         self.entry_id.configure(state="normal")
-        self.entry_id.delete(0, "end"); self.entry_id.insert(0, str(first.get("관리번호", "")))
+        self.entry_id.delete(0, "end")
+        self.entry_id.insert(0, str(first.get("관리번호", "")))
         self.entry_id.configure(state="readonly")
-        self.combo_status.set(str(first.get("Status", "")))
-        self.entry_client.delete(0, "end"); self.entry_client.insert(0, str(first.get("업체명", "")))
-        self.entry_project.delete(0, "end"); self.entry_project.insert(0, str(first.get("프로젝트명", "")))
-        self.entry_req.delete(0, "end"); self.entry_req.insert(0, str(first.get("주문요청사항", "")))
-        self.entry_note.delete(0, "end"); self.entry_note.insert(0, str(first.get("비고", "")))
         
-        self.entry_client.configure(state="readonly")
-        self.entry_project.configure(state="readonly")
-        self.entry_req.configure(state="readonly")
-        self.entry_note.configure(state="readonly")
+        self.combo_status.set(str(first.get("Status", "")))
+        
+        # [수정] 안전한 데이터 로드
+        widgets = [
+            (self.entry_client, "업체명"),
+            (self.entry_project, "프로젝트명"),
+            (self.entry_req, "주문요청사항"),
+            (self.entry_note, "비고")
+        ]
+        
+        for widget, col in widgets:
+            val = str(first.get(col, ""))
+            if val == "nan": val = ""
+            widget.configure(state="normal")
+            widget.delete(0, "end")
+            widget.insert(0, val)
+            widget.configure(state="readonly")
 
         # 품목 정보 로드 (편집 불가)
         for _, row in rows.iterrows():
             widgets = self._add_item_row(row)
             for w in widgets.values():
                 if isinstance(w, ctk.CTkEntry):
-                    w.configure(state="readonly", fg_color="transparent")
-            widgets["frame"].children['!ctkbutton'].destroy() # 삭제 버튼 제거
+                    # [수정] 투명 색상 대신 기본 배경색 사용하거나 색상 설정 생략
+                    # 만약 배경과 섞이게 하고 싶다면 frame 색과 동일하게 설정해야 함
+                    # 여기서는 안전하게 state만 변경
+                    w.configure(state="readonly")
+            
+            # 삭제 버튼 제거
+            try:
+                for child in widgets["frame"].winfo_children():
+                    if isinstance(child, ctk.CTkButton):
+                        child.destroy()
+            except: pass
 
         self._calculate_and_display_totals(rows)
         
     def _add_item_row(self, item_data=None):
         row_widgets = super()._add_item_row(item_data)
         if item_data is not None:
-            row_widgets["item"].insert(0, str(item_data.get("품목명", "")))
-            row_widgets["model"].insert(0, str(item_data.get("모델명", "")))
-            row_widgets["desc"].insert(0, str(item_data.get("Description", "")))
-            row_widgets["qty"].insert(0, f'{item_data.get("수량", 0):,}')
-            row_widgets["price"].insert(0, f'{item_data.get("단가", 0):,}')
-            row_widgets["supply"].configure(state="normal"); row_widgets["supply"].insert(0, f'{item_data.get("공급가액", 0):,}'); row_widgets["supply"].configure(state="readonly")
-            row_widgets["tax"].configure(state="normal"); row_widgets["tax"].insert(0, f'{item_data.get("세액", 0):,}'); row_widgets["tax"].configure(state="readonly")
-            row_widgets["total"].configure(state="normal"); row_widgets["total"].insert(0, f'{item_data.get("합계금액", 0):,}'); row_widgets["total"].configure(state="readonly")
+            # 데이터 삽입 헬퍼
+            def set_val(key, val, is_num=False):
+                if is_num:
+                    try: val = f"{float(str(val).replace(',', '')):,.0f}"
+                    except: val = "0"
+                else:
+                    val = str(val)
+                    if val == "nan": val = ""
+                
+                w = row_widgets[key]
+                # 이미 BasePopup에서 insert했을 수 있으니 안전하게 delete 후 insert
+                w.delete(0, "end")
+                w.insert(0, val)
+
+            set_val("item", item_data.get("품목명", ""))
+            set_val("model", item_data.get("모델명", ""))
+            set_val("desc", item_data.get("Description", ""))
+            set_val("qty", item_data.get("수량", 0), is_num=True) # 수량은 소수점 가능하나 여기선 포맷팅 통일
+            set_val("price", item_data.get("단가", 0), is_num=True)
+            
+            # Readonly 위젯들 잠시 풀고 입력
+            for k in ["supply", "tax", "total"]:
+                row_widgets[k].configure(state="normal")
+            
+            set_val("supply", item_data.get("공급가액", 0), is_num=True)
+            set_val("tax", item_data.get("세액", 0), is_num=True)
+            set_val("total", item_data.get("합계금액", 0), is_num=True)
+            
+            for k in ["supply", "tax", "total"]:
+                row_widgets[k].configure(state="readonly")
+                
         return row_widgets
 
     def _calculate_and_display_totals(self, df_rows):
-        total_amount = df_rows["합계금액"].sum()
-        paid_amount = df_rows["기수금액"].sum()
+        try:
+            total_amount = pd.to_numeric(df_rows["합계금액"], errors='coerce').sum()
+            paid_amount = pd.to_numeric(df_rows["기수금액"], errors='coerce').sum()
+        except:
+            total_amount = 0
+            paid_amount = 0
+            
         unpaid_amount = total_amount - paid_amount
 
         self.lbl_total_amount.configure(text=f"{total_amount:,.0f}")
@@ -141,16 +216,27 @@ class PaymentPopup(BasePopup):
             for idx in indices:
                 if remaining_payment <= 0: break
                 
-                unpaid = dfs["data"].at[idx, "미수금액"]
+                try:
+                    unpaid = float(dfs["data"].at[idx, "미수금액"])
+                except: unpaid = 0
+                
                 if unpaid > 0:
                     pay_for_item = min(remaining_payment, unpaid)
-                    dfs["data"].at[idx, "기수금액"] += pay_for_item
-                    dfs["data"].at[idx, "미수금액"] -= pay_for_item
+                    
+                    try: current_paid = float(dfs["data"].at[idx, "기수금액"])
+                    except: current_paid = 0
+                    
+                    dfs["data"].at[idx, "기수금액"] = current_paid + pay_for_item
+                    dfs["data"].at[idx, "미수금액"] = unpaid - pay_for_item
                     remaining_payment -= pay_for_item
 
             # 전체 미수금액 재계산 및 상태 업데이트
-            total_unpaid = dfs["data"].loc[indices, "미수금액"].sum()
-            status = "완료" if total_unpaid < 1 else "납품완료/입금대기"
+            # 주의: 위 루프에서 업데이트된 값 기반으로 재계산
+            # 여기서는 간단히 다시 합산
+            current_rows = dfs["data"].loc[indices]
+            total_unpaid = pd.to_numeric(current_rows["미수금액"], errors='coerce').sum()
+            
+            status = "완료" if total_unpaid < 1 else "납품완료/입금대기" # 1원 미만 오차 허용
             
             dfs["data"].loc[indices, "Status"] = status
             if status == "완료":
@@ -173,10 +259,12 @@ class PaymentPopup(BasePopup):
     
     # --- 사용하지 않는 메서드 ---
     def _generate_new_id(self):
-        messagebox.showinfo("정보", "수금 팝업에서는 신규 생성을 지원하지 않습니다.", parent=self)
+        # messagebox.showinfo("정보", "수금 팝업에서는 신규 생성을 지원하지 않습니다.", parent=self)
+        pass
 
     def delete(self):
-        messagebox.showinfo("정보", "수금 팝업에서는 삭제 기능을 지원하지 않습니다.", parent=self)
+        # messagebox.showinfo("정보", "수금 팝업에서는 삭제 기능을 지원하지 않습니다.", parent=self)
+        pass
         
     def _on_client_select(self, client_name):
         pass # 읽기 전용이므로 동작 없음
