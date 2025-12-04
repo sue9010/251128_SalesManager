@@ -28,7 +28,7 @@ class CompletePopup(BasePopup):
         # 2. 요약 대시보드
         self._create_summary_cards(self.main_container)
         
-        # [수정] 3. 탭 뷰 (품목 / 입금 이력 / 납품 이력)
+        # 3. 탭 뷰 (품목 / 입금 이력 / 납품 이력)
         self._create_tabs(self.main_container)
         
         # 4. 하단 섹션 (비고, 요청사항, 파일)
@@ -37,7 +37,7 @@ class CompletePopup(BasePopup):
         # 5. 닫기 버튼
         self._create_action_buttons_custom(self.main_container)
 
-        self.geometry("1200x900") # 높이 약간 증가
+        self.geometry("1200x900")
 
     def _create_header(self, parent):
         header_frame = ctk.CTkFrame(parent, fg_color="transparent")
@@ -83,7 +83,6 @@ class CompletePopup(BasePopup):
         create_card(3, "출고일 / 입금완료일", "lbl_date_dp")
 
     def _create_tabs(self, parent):
-        """[신규] 탭 뷰 생성 (품목, 입금 이력, 납품 이력)"""
         self.tabview = ctk.CTkTabview(parent, height=300)
         self.tabview.pack(fill="both", expand=True, pady=(0, 20))
         
@@ -91,13 +90,8 @@ class CompletePopup(BasePopup):
         self.tabview.add("입금 이력")
         self.tabview.add("납품 이력")
         
-        # 1. 품목 리스트 탭 설정
         self._setup_items_tab(self.tabview.tab("품목 리스트"))
-        
-        # 2. 입금 이력 탭 설정
         self._setup_payment_history_tab(self.tabview.tab("입금 이력"))
-        
-        # 3. 납품 이력 탭 설정
         self._setup_delivery_history_tab(self.tabview.tab("납품 이력"))
 
     def _setup_items_tab(self, parent):
@@ -173,7 +167,6 @@ class CompletePopup(BasePopup):
                       text_color=COLORS["text"]).pack(side="right")
 
     def _load_data(self):
-        # 1. 기본 데이터 로드
         df = self.dm.df_data
         rows = df[df["관리번호"].astype(str) == str(self.mgmt_no)]
         if rows.empty: return
@@ -184,21 +177,24 @@ class CompletePopup(BasePopup):
         self.lbl_id.configure(text=f"No. {first['관리번호']}")
         self.lbl_project.configure(text=first.get("프로젝트명", ""))
         self.lbl_client.configure(text=first.get("업체명", ""))
-        self.status_badge.configure(text=first.get("Status", "Unknown"))
         
         status = str(first.get("Status", ""))
+        self.status_badge.configure(text=status)
         if "완료" in status: self.status_badge.configure(fg_color=COLORS["success"])
         elif "취소" in status: self.status_badge.configure(fg_color=COLORS["danger"])
         else: self.status_badge.configure(fg_color=COLORS["primary"])
 
-        # 요약 정보
+        # [수정] 통화 정보 확인 및 포맷팅 적용
+        currency = str(first.get("통화", "KRW")).upper()
+        
         try: total = pd.to_numeric(rows["합계금액"], errors='coerce').sum()
         except: total = 0
         try: paid = pd.to_numeric(rows["기수금액"], errors='coerce').sum()
         except: paid = 0
         
-        self.lbl_amt_total.configure(text=f"₩ {total:,.0f}")
-        self.lbl_amt_paid.configure(text=f"₩ {paid:,.0f}")
+        # 포맷팅 로직 변경 (통화 코드 + 금액)
+        self.lbl_amt_total.configure(text=f"{currency} {total:,.0f}")
+        self.lbl_amt_paid.configure(text=f"{currency} {paid:,.0f}")
         
         q_date = str(first.get("견적일", "-"))
         s_date = str(first.get("수주일", "-"))
@@ -224,12 +220,11 @@ class CompletePopup(BasePopup):
         for _, row in rows.iterrows():
             self._add_item_row(row)
 
-        # [신규] 3. 입금 이력 로드
+        # 3. 입금 이력 로드
         for widget in self.scroll_payment.winfo_children(): widget.destroy()
         if not self.dm.df_payment.empty:
             pay_rows = self.dm.df_payment[self.dm.df_payment["관리번호"].astype(str) == str(self.mgmt_no)]
             if not pay_rows.empty:
-                # 최신순 정렬
                 pay_rows = pay_rows.sort_values(by="일시", ascending=False)
                 for _, p_row in pay_rows.iterrows():
                     self._add_payment_row(p_row)
@@ -238,7 +233,7 @@ class CompletePopup(BasePopup):
         else:
             ctk.CTkLabel(self.scroll_payment, text="입금 이력이 없습니다.", text_color=COLORS["text_dim"]).pack(pady=20)
 
-        # [신규] 4. 납품 이력 로드
+        # 4. 납품 이력 로드
         for widget in self.scroll_delivery.winfo_children(): widget.destroy()
         if not self.dm.df_delivery.empty:
             del_rows = self.dm.df_delivery[self.dm.df_delivery["관리번호"].astype(str) == str(self.mgmt_no)]
@@ -292,7 +287,6 @@ class CompletePopup(BasePopup):
         row_frame = ctk.CTkFrame(self.scroll_payment, fg_color="transparent", height=30)
         row_frame.pack(fill="x", pady=2)
         
-        # ["일시", "구분", "입금액", "통화", "작업자", "비고"]
         self._create_cell(row_frame, row.get("일시", ""), 150)
         self._create_cell(row_frame, row.get("구분", ""), 100, "center")
         self._create_cell(row_frame, row.get("입금액", 0), 120, "right", True)
@@ -304,7 +298,6 @@ class CompletePopup(BasePopup):
         row_frame = ctk.CTkFrame(self.scroll_delivery, fg_color="transparent", height=30)
         row_frame.pack(fill="x", pady=2)
         
-        # ["처리일시", "출고일", "품목명", "출고수량", "송장번호", "운송방법", "비고"]
         self._create_cell(row_frame, row.get("일시", ""), 150)
         self._create_cell(row_frame, row.get("출고일", ""), 100, "center")
         self._create_cell(row_frame, row.get("품목명", ""), 200)

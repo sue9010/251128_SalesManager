@@ -15,7 +15,7 @@ class DataManager:
         self.df_clients = pd.DataFrame(columns=Config.CLIENT_COLUMNS)
         self.df_data = pd.DataFrame(columns=Config.DATA_COLUMNS)
         self.df_payment = pd.DataFrame(columns=Config.PAYMENT_COLUMNS)
-        self.df_delivery = pd.DataFrame(columns=Config.DELIVERY_COLUMNS) # [신규]
+        self.df_delivery = pd.DataFrame(columns=Config.DELIVERY_COLUMNS)
         self.df_log = pd.DataFrame(columns=Config.LOG_COLUMNS)
         self.df_memo = pd.DataFrame(columns=Config.MEMO_COLUMNS)
         self.df_memo_log = pd.DataFrame(columns=Config.MEMO_LOG_COLUMNS)
@@ -23,12 +23,10 @@ class DataManager:
         self.current_excel_path = Config.DEFAULT_EXCEL_PATH
         self.attachment_root = Config.DEFAULT_ATTACHMENT_ROOT
         self.production_request_path = Config.DEFAULT_PRODUCTION_REQUEST_PATH
-        
         self.order_request_dir = Config.DEFAULT_ORDER_REQUEST_DIR 
         
         self.current_theme = "Dark"
         self.is_dev_mode = False
-        
         self.last_file_timestamp = 0.0
         
         self.load_config()
@@ -86,7 +84,6 @@ class DataManager:
                 else:
                     self.df_payment = pd.DataFrame(columns=Config.PAYMENT_COLUMNS)
 
-                # [신규] Delivery 시트 로드
                 if Config.SHEET_DELIVERY in xls.sheet_names:
                     self.df_delivery = pd.read_excel(xls, Config.SHEET_DELIVERY)
                 else:
@@ -142,7 +139,6 @@ class DataManager:
                     temp_payment = pd.read_excel(xls, Config.SHEET_PAYMENT)
                 else: temp_payment = pd.DataFrame(columns=Config.PAYMENT_COLUMNS)
 
-                # [신규] Delivery 시트
                 if Config.SHEET_DELIVERY in xls.sheet_names:
                     temp_delivery = pd.read_excel(xls, Config.SHEET_DELIVERY)
                 else: temp_delivery = pd.DataFrame(columns=Config.DELIVERY_COLUMNS)
@@ -164,10 +160,9 @@ class DataManager:
             temp_data = temp_data.fillna("-")
             temp_clients = temp_clients.fillna("-")
 
-            # dfs 딕셔너리에 delivery 추가
             dfs = {
                 "clients": temp_clients, "data": temp_data, 
-                "payment": temp_payment, "delivery": temp_delivery, # [신규]
+                "payment": temp_payment, "delivery": temp_delivery,
                 "log": temp_log, "memo": temp_memo, "memo_log": temp_memo_log
             }
             
@@ -178,7 +173,7 @@ class DataManager:
                 dfs["clients"].to_excel(writer, sheet_name=Config.SHEET_CLIENTS, index=False)
                 dfs["data"].to_excel(writer, sheet_name=Config.SHEET_DATA, index=False)
                 dfs["payment"].to_excel(writer, sheet_name=Config.SHEET_PAYMENT, index=False)
-                dfs["delivery"].to_excel(writer, sheet_name=Config.SHEET_DELIVERY, index=False) # [신규]
+                dfs["delivery"].to_excel(writer, sheet_name=Config.SHEET_DELIVERY, index=False)
                 dfs["log"].to_excel(writer, sheet_name=Config.SHEET_LOG, index=False)
                 dfs["memo"].to_excel(writer, sheet_name=Config.SHEET_MEMO, index=False)
                 dfs["memo_log"].to_excel(writer, sheet_name=Config.SHEET_MEMO_LOG, index=False)
@@ -190,6 +185,71 @@ class DataManager:
             return False, "엑셀 파일이 열려있습니다. 파일을 닫고 다시 시도해주세요."
         except Exception as e:
             return False, f"트랜잭션 오류: {e}"
+
+    # [수정] 관리번호 기준 잔액 재계산 (문자열 처리 강화)
+    def recalc_payment_status(self, dfs, mgmt_no):
+        pay_df = dfs["payment"]
+        if pay_df.empty:
+            total_paid = 0
+            last_pay_date = "-"
+        else:
+            target_pays = pay_df[pay_df["관리번호"].astype(str) == str(mgmt_no)]
+            # 콤마 제거 후 숫자 변환
+            paid_series = target_pays["입금액"].astype(str).str.replace(",", "").replace("nan", "0")
+            total_paid = pd.to_numeric(paid_series, errors='coerce').sum()
+            
+            if not target_pays.empty:
+                target_pays = target_pays.sort_values(by="일시", ascending=False)
+                last_pay_date = target_pays.iloc[0]["일시"].split(" ")[0]
+            else:
+                last_pay_date = "-"
+
+        data_df = dfs["data"]
+        mask = data_df["관리번호"] == mgmt_no
+        indices = data_df[mask].index
+        
+        if len(indices) == 0: return
+
+        # 총 계약 금액 계산
+        amt_series = data_df.loc[mask, "합계금액"].astype(str).str.replace(",", "").replace("nan", "0")
+        total_contract_amt = pd.to_numeric(amt_series, errors='coerce').sum()
+        
+        remaining_to_allocate = total_paid
+        
+        for idx in indices:
+            val_str = str(data_df.at[idx, "합계금액"]).replace(",", "")
+            try: row_total = float(val_str)
+            except: row_total = 0
+            
+            if remaining_to_allocate >= row_total:
+                allocated = row_total
+            else:
+                allocated = remaining_to_allocate
+                if allocated < 0: allocated = 0
+            
+            data_df.at[idx, "기수금액"] = allocated
+            data_df.at[idx, "미수금액"] = row_total - allocated
+            
+            remaining_to_allocate -= allocated
+            
+            # 상태 업데이트
+            try: row_unpaid = float(data_df.at[idx, "미수금액"])
+            except: row_unpaid = 0
+            
+            current_status = str(data_df.at[idx, "Status"])
+            
+            if row_unpaid < 1:
+                if "납품" in current_status or "완료" in current_status:
+                    new_status = "완료"
+                else:
+                    new_status = "납품대기/입금완료"
+                data_df.at[idx, "입금완료일"] = last_pay_date
+            else:
+                if current_status == "완료": new_status = "납품완료/입금대기"
+                elif current_status == "납품대기/입금완료": new_status = current_status
+                else: new_status = current_status
+            
+            data_df.at[idx, "Status"] = new_status
 
     def _create_log_entry(self, action, details):
         try: user = getpass.getuser()
@@ -225,7 +285,7 @@ class DataManager:
                 self.df_clients.to_excel(writer, sheet_name=Config.SHEET_CLIENTS, index=False)
                 self.df_data.to_excel(writer, sheet_name=Config.SHEET_DATA, index=False)
                 self.df_payment.to_excel(writer, sheet_name=Config.SHEET_PAYMENT, index=False)
-                self.df_delivery.to_excel(writer, sheet_name=Config.SHEET_DELIVERY, index=False) # [신규]
+                self.df_delivery.to_excel(writer, sheet_name=Config.SHEET_DELIVERY, index=False)
                 self.df_log.to_excel(writer, sheet_name=Config.SHEET_LOG, index=False)
                 self.df_memo.to_excel(writer, sheet_name=Config.SHEET_MEMO, index=False)
                 self.df_memo_log.to_excel(writer, sheet_name=Config.SHEET_MEMO_LOG, index=False)
@@ -375,7 +435,6 @@ class DataManager:
 
     def sync_production_dates(self):
         if not os.path.exists(self.production_request_path):
-            print("생산 요청 파일을 찾을 수 없어 날짜 동기화를 건너뜁니다.")
             return
 
         try:
