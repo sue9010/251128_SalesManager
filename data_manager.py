@@ -14,6 +14,8 @@ class DataManager:
     def __init__(self):
         self.df_clients = pd.DataFrame(columns=Config.CLIENT_COLUMNS)
         self.df_data = pd.DataFrame(columns=Config.DATA_COLUMNS)
+        self.df_payment = pd.DataFrame(columns=Config.PAYMENT_COLUMNS)
+        self.df_delivery = pd.DataFrame(columns=Config.DELIVERY_COLUMNS) # [신규]
         self.df_log = pd.DataFrame(columns=Config.LOG_COLUMNS)
         self.df_memo = pd.DataFrame(columns=Config.MEMO_COLUMNS)
         self.df_memo_log = pd.DataFrame(columns=Config.MEMO_LOG_COLUMNS)
@@ -22,7 +24,6 @@ class DataManager:
         self.attachment_root = Config.DEFAULT_ATTACHMENT_ROOT
         self.production_request_path = Config.DEFAULT_PRODUCTION_REQUEST_PATH
         
-        # [수정] 초기화 코드 유지
         self.order_request_dir = Config.DEFAULT_ORDER_REQUEST_DIR 
         
         self.current_theme = "Dark"
@@ -80,6 +81,17 @@ class DataManager:
                     self.df_data = pd.read_excel(xls, Config.SHEET_DATA)
                     self.df_data.columns = self.df_data.columns.str.strip()
                 
+                if Config.SHEET_PAYMENT in xls.sheet_names:
+                    self.df_payment = pd.read_excel(xls, Config.SHEET_PAYMENT)
+                else:
+                    self.df_payment = pd.DataFrame(columns=Config.PAYMENT_COLUMNS)
+
+                # [신규] Delivery 시트 로드
+                if Config.SHEET_DELIVERY in xls.sheet_names:
+                    self.df_delivery = pd.read_excel(xls, Config.SHEET_DELIVERY)
+                else:
+                    self.df_delivery = pd.DataFrame(columns=Config.DELIVERY_COLUMNS)
+
                 if Config.SHEET_LOG in xls.sheet_names:
                     self.df_log = pd.read_excel(xls, Config.SHEET_LOG)
                 else:
@@ -126,6 +138,15 @@ class DataManager:
                     temp_data.columns = temp_data.columns.str.strip()
                 else: temp_data = pd.DataFrame(columns=Config.DATA_COLUMNS)
 
+                if Config.SHEET_PAYMENT in xls.sheet_names:
+                    temp_payment = pd.read_excel(xls, Config.SHEET_PAYMENT)
+                else: temp_payment = pd.DataFrame(columns=Config.PAYMENT_COLUMNS)
+
+                # [신규] Delivery 시트
+                if Config.SHEET_DELIVERY in xls.sheet_names:
+                    temp_delivery = pd.read_excel(xls, Config.SHEET_DELIVERY)
+                else: temp_delivery = pd.DataFrame(columns=Config.DELIVERY_COLUMNS)
+
                 if Config.SHEET_LOG in xls.sheet_names:
                     temp_log = pd.read_excel(xls, Config.SHEET_LOG)
                 else: temp_log = pd.DataFrame(columns=Config.LOG_COLUMNS)
@@ -143,9 +164,11 @@ class DataManager:
             temp_data = temp_data.fillna("-")
             temp_clients = temp_clients.fillna("-")
 
+            # dfs 딕셔너리에 delivery 추가
             dfs = {
-                "clients": temp_clients, "data": temp_data, "log": temp_log,
-                "memo": temp_memo, "memo_log": temp_memo_log
+                "clients": temp_clients, "data": temp_data, 
+                "payment": temp_payment, "delivery": temp_delivery, # [신규]
+                "log": temp_log, "memo": temp_memo, "memo_log": temp_memo_log
             }
             
             success, msg = update_logic_func(dfs)
@@ -154,6 +177,8 @@ class DataManager:
             with pd.ExcelWriter(self.current_excel_path, engine="openpyxl") as writer:
                 dfs["clients"].to_excel(writer, sheet_name=Config.SHEET_CLIENTS, index=False)
                 dfs["data"].to_excel(writer, sheet_name=Config.SHEET_DATA, index=False)
+                dfs["payment"].to_excel(writer, sheet_name=Config.SHEET_PAYMENT, index=False)
+                dfs["delivery"].to_excel(writer, sheet_name=Config.SHEET_DELIVERY, index=False) # [신규]
                 dfs["log"].to_excel(writer, sheet_name=Config.SHEET_LOG, index=False)
                 dfs["memo"].to_excel(writer, sheet_name=Config.SHEET_MEMO, index=False)
                 dfs["memo_log"].to_excel(writer, sheet_name=Config.SHEET_MEMO_LOG, index=False)
@@ -199,6 +224,8 @@ class DataManager:
             with pd.ExcelWriter(self.current_excel_path, engine="openpyxl") as writer:
                 self.df_clients.to_excel(writer, sheet_name=Config.SHEET_CLIENTS, index=False)
                 self.df_data.to_excel(writer, sheet_name=Config.SHEET_DATA, index=False)
+                self.df_payment.to_excel(writer, sheet_name=Config.SHEET_PAYMENT, index=False)
+                self.df_delivery.to_excel(writer, sheet_name=Config.SHEET_DELIVERY, index=False) # [신규]
                 self.df_log.to_excel(writer, sheet_name=Config.SHEET_LOG, index=False)
                 self.df_memo.to_excel(writer, sheet_name=Config.SHEET_MEMO, index=False)
                 self.df_memo_log.to_excel(writer, sheet_name=Config.SHEET_MEMO_LOG, index=False)
@@ -346,32 +373,26 @@ class DataManager:
         except Exception as e:
             return False, f"생산 요청 내보내기 실패: {e}"
 
-    # [NEW] 생산 요청일 동기화 메서드
     def sync_production_dates(self):
         if not os.path.exists(self.production_request_path):
             print("생산 요청 파일을 찾을 수 없어 날짜 동기화를 건너뜁니다.")
             return
 
         try:
-            # openpyxl을 사용하여 데이터 읽기 (빠름)
             wb = openpyxl.load_workbook(self.production_request_path, data_only=True)
             if "Data" not in wb.sheetnames: return
             ws = wb["Data"]
             
-            # 관리번호(A열, index 0)와 출고예정일(I열, index 8) 매핑
-            # 2행부터 데이터 시작
             date_map = {}
             for row in ws.iter_rows(min_row=2, values_only=True):
                 mgmt_no = str(row[0]) if row[0] else None
-                delivery_date = row[8] # I열 (0-based index 8)
+                delivery_date = row[8]
                 
                 if mgmt_no and delivery_date:
-                    # 날짜 형식 처리
                     if isinstance(delivery_date, datetime):
                         date_str = delivery_date.strftime("%Y-%m-%d")
                     else:
                         date_str = str(delivery_date).strip()
-                        # "nan", "-", "" 등의 무효한 값 필터링
                         if date_str.lower() == "nan" or date_str == "-" or not date_str:
                             continue
                             
@@ -379,15 +400,11 @@ class DataManager:
             
             wb.close()
             
-            # self.df_data 업데이트
             if not self.df_data.empty:
-                # '출고예정일' 컬럼이 있는지 확인
                 if '출고예정일' not in self.df_data.columns:
                     self.df_data['출고예정일'] = "-"
                 
-                # 업데이트 로직 (apply보다 반복문이나 map이 안전할 수 있음)
                 for mgmt_no, new_date in date_map.items():
-                    # 해당 관리번호를 가진 모든 행 업데이트 (주문은 품목별로 여러 행일 수 있음)
                     mask = self.df_data['관리번호'] == mgmt_no
                     if mask.any():
                         self.df_data.loc[mask, '출고예정일'] = new_date

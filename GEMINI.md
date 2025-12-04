@@ -1,3 +1,4 @@
+0. 모든 사고과정 (implementation plane, walkthrough, task)와 대화는 한국어로 작성한다.
 1. 현재 프로젝트는 venv 환경에서 빌드되었다. 
 2. 현재 컴퓨터는 windows 이다.
 3. 답변은 한국어로 한다.

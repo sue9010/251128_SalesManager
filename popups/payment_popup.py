@@ -1,6 +1,7 @@
 import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox
+import getpass # [신규] 사용자명 가져오기 위함
 
 import customtkinter as ctk
 import pandas as pd
@@ -10,7 +11,6 @@ from styles import COLORS, FONTS
 
 class PaymentPopup(BasePopup):
     def __init__(self, parent, data_manager, refresh_callback, mgmt_nos):
-        # [수정] 관리번호 리스트 처리
         if isinstance(mgmt_nos, list):
             self.mgmt_nos = mgmt_nos
         else:
@@ -21,7 +21,6 @@ class PaymentPopup(BasePopup):
             self.destroy()
             return
             
-        # BasePopup에는 대표 번호 하나만 넘김
         super().__init__(parent, data_manager, refresh_callback, popup_title="수금", mgmt_no=self.mgmt_nos[0])
 
     def _create_widgets(self):
@@ -190,6 +189,9 @@ class PaymentPopup(BasePopup):
             return
 
         payment_date = self.entry_pay_date.get()
+        # 현재 사용자 가져오기
+        try: current_user = getpass.getuser()
+        except: current_user = "Unknown"
 
         def update_logic(dfs):
             mask = dfs["data"]["관리번호"].isin(self.mgmt_nos)
@@ -200,77 +202,119 @@ class PaymentPopup(BasePopup):
             
             remaining_payment = payment_amount
             processed_mgmts = set()
+            new_payment_records = [] # Payment 시트에 추가할 내역들
 
+            # 1. 입금 금액 분배 로직 (Data 시트 업데이트 + Payment 내역 생성)
             for idx in indices:
                 if remaining_payment <= 0: break
+                
+                mgmt_no = dfs["data"].at[idx, "관리번호"]
+                currency = str(dfs["data"].at[idx, "통화"]).upper()
+                threshold = 200 if currency != "KRW" else 5000 # 수수료 처리 기준
                 
                 try: unpaid = float(dfs["data"].at[idx, "미수금액"])
                 except: unpaid = 0
                 
-                # [수정] 통화별 임계값 설정
-                currency = str(dfs["data"].at[idx, "통화"]).upper()
-                threshold = 200 if currency != "KRW" else 5000
-                
+                try: current_paid = float(dfs["data"].at[idx, "기수금액"])
+                except: current_paid = 0
+
                 if unpaid > 0:
                     actual_pay = 0
-                    force_complete = False
+                    fee_pay = 0 # 수수료/조정 금액
+                    is_fee_adjusted = False
                     
                     if remaining_payment >= unpaid:
                         actual_pay = unpaid
                     else:
                         diff = unpaid - remaining_payment
-                        # [수정] 설정한 임계값(threshold)과 비교
+                        # 미세 잔액(수수료) 처리 여부 확인
                         if diff <= threshold:
                             item_name = str(dfs["data"].at[idx, "품목명"])
                             if messagebox.askyesno("수수료 처리 확인", 
                                                    f"[{item_name}] 항목의 잔액이 {diff:,.0f} ({currency}) 남습니다.\n"
-                                                   f"이를 수수료로 간주하여 '완납' 처리하시겠습니까?\n"
+                                                   f"이를 수수료(할인)로 처리하여 '완납' 하시겠습니까?\n"
                                                    f"(예: 미수금 0 처리 / 아니오: 잔액 유지)"):
-                                force_complete = True
-                                actual_pay = unpaid
+                                actual_pay = remaining_payment # 실제 입금액
+                                fee_pay = diff                 # 수수료 금액
+                                is_fee_adjusted = True
                             else:
                                 actual_pay = remaining_payment
                         else:
                             actual_pay = remaining_payment
 
-                    try: current_paid = float(dfs["data"].at[idx, "기수금액"])
-                    except: current_paid = 0
+                    # [Data 시트 업데이트]
+                    # 기수금액을 단순히 더하는 것이 아니라, Payment 내역 기반으로 재계산하는 것이 원칙이나
+                    # 여기서는 로직 단순화를 위해 누적합니다.
+                    dfs["data"].at[idx, "기수금액"] = current_paid + actual_pay + fee_pay
+                    dfs["data"].at[idx, "미수금액"] = unpaid - (actual_pay + fee_pay)
                     
-                    if force_complete:
-                        dfs["data"].at[idx, "기수금액"] = current_paid + unpaid
-                        dfs["data"].at[idx, "미수금액"] = 0
-                        # 수수료 포함 완납이므로 해당 항목 미수금만큼 입금액에서 차감되었다고 가정하거나
-                        # 실제 입금된 돈만 차감하려면 remaining_payment -= actual_pay (여기서 actual_pay는 unpaid)
-                        # 하지만 잔액이 부족한데 unpaid만큼 뺐으니 remaining_payment는 음수가 됨 -> 0으로 보정
-                        remaining_payment = 0
-                    else:
-                        dfs["data"].at[idx, "기수금액"] = current_paid + actual_pay
-                        dfs["data"].at[idx, "미수금액"] = unpaid - actual_pay
-                        remaining_payment -= actual_pay
-                    
-                    processed_mgmts.add(dfs["data"].at[idx, "관리번호"])
+                    # 남은 처리용 금액 차감
+                    remaining_payment -= actual_pay 
+                    # (fee_pay는 사용자가 입금한 돈에서 나가는 게 아니라 탕감해주는 것이므로 remaining_payment에선 차감 안 함)
 
+                    processed_mgmts.add(mgmt_no)
+
+                    # [Payment 시트 내역 생성 - 일반 입금]
+                    if actual_pay > 0:
+                        new_payment_records.append({
+                            "일시": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "관리번호": mgmt_no,
+                            "구분": "입금",
+                            "입금액": actual_pay,
+                            "통화": currency,
+                            "작업자": current_user,
+                            "비고": f"일괄 입금 ({payment_date})"
+                        })
+                    
+                    # [Payment 시트 내역 생성 - 수수료/조정]
+                    if fee_pay > 0:
+                        new_payment_records.append({
+                            "일시": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "관리번호": mgmt_no,
+                            "구분": "수수료/조정",
+                            "입금액": fee_pay,
+                            "통화": currency,
+                            "작업자": current_user,
+                            "비고": "잔액 탕감 처리"
+                        })
+
+            # 2. Payment 시트에 내역 추가 (한 번에 concat)
+            if new_payment_records:
+                payment_df_new = pd.DataFrame(new_payment_records)
+                dfs["payment"] = pd.concat([dfs["payment"], payment_df_new], ignore_index=True)
+
+            # 3. 상태 업데이트 (Data 시트)
             for idx in indices:
                 try: 
                     row_unpaid = float(dfs["data"].at[idx, "미수금액"])
                     row_status = str(dfs["data"].at[idx, "Status"])
                 except: continue
 
+                # 미수금이 거의 없으면(부동소수점 오차 고려 1 미만) 완료 처리
                 if row_unpaid < 1:
-                    if row_status == "납품완료/입금대기":
+                    if "납품" in row_status or "완료" in row_status: 
+                        # 이미 납품된 상태라면 '완료'
                         new_status = "완료"
                     else:
+                        # 아직 납품 전이라면
                         new_status = "납품대기/입금완료"
+                    
                     dfs["data"].at[idx, "입금완료일"] = payment_date
                 else:
-                    new_status = row_status
+                    # 부분 입금 상태
+                    if row_status == "완료": new_status = "완료" # 이미 완료된 건은 유지
+                    elif "납품" in row_status:
+                        new_status = "납품완료/입금대기" # 납품은 됐는데 돈이 남음
+                    else:
+                        new_status = row_status # 생산중/주문 등은 상태 유지
                 
                 dfs["data"].at[idx, "Status"] = new_status
 
+            # 로그 기록
             mgmt_str = self.mgmt_nos[0]
             if len(self.mgmt_nos) > 1: mgmt_str += f" 외 {len(self.mgmt_nos)-1}건"
             
-            log_msg = f"번호 [{mgmt_str}] / 총 입금액 [{payment_amount:,.0f}]"
+            log_msg = f"번호 [{mgmt_str}] / 입금액 [{payment_amount:,.0f}] 처리 (Payment 기록됨)"
             new_log = self.dm._create_log_entry("수금 처리", log_msg)
             dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
 

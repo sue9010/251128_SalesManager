@@ -1,6 +1,7 @@
 import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox
+import getpass # [신규] 사용자명 가져오기
 
 import customtkinter as ctk
 import pandas as pd
@@ -10,7 +11,6 @@ from styles import COLORS, FONTS
 
 class DeliveryPopup(BasePopup):
     def __init__(self, parent, data_manager, refresh_callback, mgmt_nos):
-        # [수정] 관리번호 리스트 처리
         if isinstance(mgmt_nos, list):
             self.mgmt_nos = mgmt_nos
         else:
@@ -21,9 +21,7 @@ class DeliveryPopup(BasePopup):
             self.destroy()
             return
 
-        self.item_widgets_map = {} # row_index를 키로 사용하여 위젯을 관리
-        
-        # BasePopup에는 대표 관리번호(첫 번째)만 전달하여 초기화
+        self.item_widgets_map = {} 
         super().__init__(parent, data_manager, refresh_callback, popup_title="납품", mgmt_no=self.mgmt_nos[0])
 
     def _create_widgets(self):
@@ -32,7 +30,6 @@ class DeliveryPopup(BasePopup):
         self.geometry("900x750")
 
     def _create_items_frame(self):
-        """품목을 표시하는 스크롤 가능한 프레임과 헤더를 생성합니다. (납품 전용)"""
         list_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"])
         list_frame.pack(fill="both", expand=True, padx=20, pady=5)
 
@@ -50,7 +47,6 @@ class DeliveryPopup(BasePopup):
         self.scroll_items.pack(fill="both", expand=True)
 
     def _create_delivery_specific_widgets(self):
-        # --- 납품 정보 위젯 생성 ---
         self.lbl_delivery_date = ctk.CTkLabel(self.top_frame, text="출고일", font=FONTS["main_bold"])
         self.entry_delivery_date = ctk.CTkEntry(self.top_frame, width=150)
         self.entry_delivery_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
@@ -61,7 +57,6 @@ class DeliveryPopup(BasePopup):
         self.lbl_invoice_no = ctk.CTkLabel(self.top_frame, text="송장번호", font=FONTS["main_bold"])
         self.entry_invoice_no = ctk.CTkEntry(self.top_frame, width=200)
 
-        # 레이아웃 재구성 (3행 구조)
         self.lbl_id.grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.entry_id.grid(row=0, column=1, padx=5, pady=5, sticky="w")
         
@@ -94,10 +89,7 @@ class DeliveryPopup(BasePopup):
             pass
 
     def _load_data(self):
-        """데이터 로드 및 UI 반영"""
         df = self.dm.df_data
-        
-        # [수정] 여러 관리번호에 해당하는 행들을 모두 가져옴
         rows = df[df["관리번호"].isin(self.mgmt_nos)].copy()
         
         if rows.empty:
@@ -107,7 +99,6 @@ class DeliveryPopup(BasePopup):
 
         first = rows.iloc[0]
 
-        # 1. 기본 정보 로드 (첫 번째 항목 기준)
         widgets_to_load = [
             (self.entry_client, "업체명"),
             (self.entry_project, "프로젝트명"),
@@ -115,7 +106,6 @@ class DeliveryPopup(BasePopup):
             (self.entry_note, "비고")
         ]
 
-        # 2. 관리번호 설정 (다중 선택 시 표기 변경)
         self.entry_id.configure(state="normal")
         self.entry_id.delete(0, "end")
         if len(self.mgmt_nos) > 1:
@@ -124,11 +114,9 @@ class DeliveryPopup(BasePopup):
             self.entry_id.insert(0, str(self.mgmt_nos[0]))
         self.entry_id.configure(state="readonly")
 
-        # 3. 상태 설정
         self.combo_status.set(str(first.get("Status", "")))
         self.combo_status.configure(state="disabled")
 
-        # 4. 텍스트 위젯 데이터 로드
         for widget, col in widgets_to_load:
             if widget is None: continue
             val = str(first.get(col, ""))
@@ -138,7 +126,6 @@ class DeliveryPopup(BasePopup):
             widget.insert(0, val)
             widget.configure(state="readonly")
 
-        # 5. 납품 대상 품목 리스트 생성 (모든 관리번호의 품목들을 표시)
         target_rows = rows[~rows["Status"].isin(["납품완료/입금대기", "완료", "취소", "보류"])]
         
         for index, row_data in target_rows.iterrows():
@@ -148,9 +135,7 @@ class DeliveryPopup(BasePopup):
         row_frame = ctk.CTkFrame(self.scroll_items, fg_color="transparent", height=35)
         row_frame.pack(fill="x", pady=2)
 
-        # 품명 (250)
         ctk.CTkLabel(row_frame, text=str(item_data.get("품목명", "")), width=250, anchor="w").pack(side="left", padx=2)
-        # 모델명 (300)
         ctk.CTkLabel(row_frame, text=str(item_data.get("모델명", "")), width=300, anchor="w").pack(side="left", padx=2)
         
         try:
@@ -159,10 +144,8 @@ class DeliveryPopup(BasePopup):
         except ValueError:
             current_qty = 0.0
 
-        # 잔여 수량 (100)
         ctk.CTkLabel(row_frame, text=f"{current_qty:g}", width=100).pack(side="left", padx=2)
         
-        # 출고 수량 입력창 (100)
         entry_deliver_qty = ctk.CTkEntry(row_frame, width=100, justify="center")
         entry_deliver_qty.pack(side="left", padx=2)
         entry_deliver_qty.insert(0, f"{current_qty:g}")
@@ -174,7 +157,6 @@ class DeliveryPopup(BasePopup):
         }
 
     def save(self):
-        """납품 처리 로직"""
         delivery_date = self.entry_delivery_date.get()
         invoice_no = self.entry_invoice_no.get()
         shipping_method = self.entry_shipping_method.get()
@@ -182,6 +164,10 @@ class DeliveryPopup(BasePopup):
         if not delivery_date:
             messagebox.showwarning("경고", "출고일을 입력하세요.", parent=self)
             return
+
+        # 현재 사용자
+        try: current_user = getpass.getuser()
+        except: current_user = "Unknown"
 
         update_requests = []
         
@@ -216,6 +202,8 @@ class DeliveryPopup(BasePopup):
 
         def update_logic(dfs):
             processed_items = []
+            new_delivery_records = [] # Delivery 시트에 추가할 내역들
+
             for req in update_requests:
                 idx = req["idx"]
                 deliver_qty = req["deliver_qty"]
@@ -238,7 +226,20 @@ class DeliveryPopup(BasePopup):
                 try: tax_rate = float(str(row_data.get("세율(%)", 0)).replace(",", "")) / 100
                 except: tax_rate = 0
 
-                # 상태 결정 로직
+                # 1. Delivery 시트에 내역 기록
+                new_delivery_records.append({
+                    "일시": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "출고일": delivery_date,
+                    "관리번호": row_data.get("관리번호", ""),
+                    "품목명": row_data.get("품목명", ""),
+                    "출고수량": deliver_qty,
+                    "송장번호": invoice_no,
+                    "운송방법": shipping_method,
+                    "작업자": current_user,
+                    "비고": "일괄 납품 처리"
+                })
+
+                # 2. Data 시트 업데이트 (상태 변경 및 행 분할)
                 current_status = str(row_data.get("Status", ""))
                 if current_status == "납품대기/입금완료":
                     new_status = "완료"
@@ -254,10 +255,10 @@ class DeliveryPopup(BasePopup):
                     total_amt = float(str(row_data.get("합계금액", 0)).replace(",", ""))
                     dfs["data"].at[idx, "미수금액"] = total_amt
                     
-                # Case 2: 부분 출고
+                # Case 2: 부분 출고 (행 분할)
                 else: 
+                    # 원본 행(잔여) 업데이트
                     remain_qty = db_qty - deliver_qty
-                    
                     remain_supply = remain_qty * price
                     remain_tax = remain_supply * tax_rate
                     dfs["data"].at[idx, "수량"] = remain_qty
@@ -266,6 +267,7 @@ class DeliveryPopup(BasePopup):
                     dfs["data"].at[idx, "합계금액"] = remain_supply + remain_tax
                     dfs["data"].at[idx, "미수금액"] = remain_supply + remain_tax
                     
+                    # 신규 행(출고된 부분) 추가
                     new_row = row_data.copy()
                     new_supply = deliver_qty * price
                     new_tax = new_supply * tax_rate
@@ -288,12 +290,17 @@ class DeliveryPopup(BasePopup):
             if not processed_items:
                 return False, "처리 가능한 항목이 없거나 데이터가 변경되었습니다."
 
-            # [수정] 로그 기록 (다중 처리 표기)
+            # 3. Delivery 시트에 저장 (한 번에)
+            if new_delivery_records:
+                delivery_df_new = pd.DataFrame(new_delivery_records)
+                dfs["delivery"] = pd.concat([dfs["delivery"], delivery_df_new], ignore_index=True)
+
+            # 4. 로그 기록
             mgmt_str = self.mgmt_nos[0]
             if len(self.mgmt_nos) > 1:
                 mgmt_str += f" 외 {len(self.mgmt_nos)-1}건"
             
-            log_msg = f"번호 [{mgmt_str}] 납품 처리 / {', '.join(processed_items)}"
+            log_msg = f"번호 [{mgmt_str}] 납품 처리 / {', '.join(processed_items)} (Delivery 기록됨)"
             new_log = self.dm._create_log_entry("납품 처리", log_msg)
             dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
             return True, ""
@@ -307,7 +314,6 @@ class DeliveryPopup(BasePopup):
         else:
             messagebox.showerror("실패", f"저장에 실패했습니다: {msg}", parent=self)
 
-    # --- 사용하지 않는 메서드 ---
     def _generate_new_id(self): pass
     def delete(self): pass
     def _add_item_row(self, item_data=None): pass

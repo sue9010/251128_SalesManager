@@ -16,7 +16,7 @@ class Config:
             pass
 
     CONFIG_FILENAME = os.path.join(APP_DIR, "config.json")
-    APP_VERSION = "1.0.0"
+    APP_VERSION = "1.2.0" # 버전 업데이트
     DEV_PASSWORD = "admin" 
 
     # ---------------------------------------------------------
@@ -45,6 +45,8 @@ class Config:
     # ---------------------------------------------------------
     SHEET_CLIENTS = "Customers"
     SHEET_DATA = "Data"
+    SHEET_PAYMENT = "Payment"
+    SHEET_DELIVERY = "Delivery" # [신규] 납품 이력 시트
     SHEET_LOG = "Log"
     SHEET_MEMO = "Memos"
     SHEET_MEMO_LOG = "Memo Log"
@@ -77,6 +79,24 @@ class Config:
         
         # [관리 정보]
         "Status", "견적서경로", "발주서경로", "주문요청사항", "비고"
+    ]
+
+    # 3. 입금 내역 시트
+    PAYMENT_COLUMNS = [
+        "일시", "관리번호", "구분", "입금액", "통화", "작업자", "비고"
+    ]
+
+    # [신규] 4. 납품(출고) 내역 시트
+    DELIVERY_COLUMNS = [
+        "일시",         # 처리 일시
+        "출고일",       # 실제 출고 날짜
+        "관리번호",     # 주문 관리번호
+        "품목명",       # 품목명 (참고용)
+        "출고수량",     # 이번에 출고된 수량
+        "송장번호",     # Tracking No
+        "운송방법",     # DHL, FedEx 등
+        "작업자",       # 처리 담당자
+        "비고"          # 메모
     ]
 
     # 로그/메모
