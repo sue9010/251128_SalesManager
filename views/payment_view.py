@@ -34,8 +34,8 @@ class PaymentView(ctk.CTkFrame):
         ctk.CTkButton(toolbar, text="새로고침", width=80, command=self.refresh_data,
                       fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="right", padx=(0, 10))
 
-        # 입금 처리 버튼
-        ctk.CTkButton(toolbar, text="💵 입금 등록", width=120, command=self.on_process_payment,
+        # [수정] 입금 처리 버튼 (일괄 처리 지원)
+        ctk.CTkButton(toolbar, text="💵 선택 항목 일괄 입금", width=150, command=self.on_process_payment,
                       fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"]).pack(side="right", padx=(0, 10))
 
         # 2. 리스트 영역 (Treeview)
@@ -46,8 +46,8 @@ class PaymentView(ctk.CTkFrame):
         scroll_y = ctk.CTkScrollbar(tree_frame, orientation="vertical")
         scroll_y.pack(side="right", fill="y", padx=(0, 5), pady=5)
 
-        # 트리뷰 설정
-        self.tree = ttk.Treeview(tree_frame, columns=self.display_cols, show="headings", yscrollcommand=scroll_y.set)
+        # [수정] selectmode='extended' 설정 (다중 선택 가능)
+        self.tree = ttk.Treeview(tree_frame, columns=self.display_cols, show="headings", yscrollcommand=scroll_y.set, selectmode="extended")
         self.tree.pack(fill="both", expand=True, padx=5, pady=5)
         scroll_y.configure(command=self.tree.yview)
 
@@ -106,19 +106,14 @@ class PaymentView(ctk.CTkFrame):
             # 미수금액을 숫자로 변환 (에러 시 0)
             df["_unpaid"] = pd.to_numeric(df["미수금액"], errors='coerce').fillna(0)
             
-            # [수정] 필터 조건 변경
-            # 1. 미수금이 남아있어야 함 (_unpaid > 0)
-            # 2. Status가 지정된 목록에 포함되어야 함
             target_statuses = ["주문", "생산중", "납품대기", "납품완료/입금대기"]
             
             mask_unpaid = df["_unpaid"] > 0
             mask_status = df["Status"].astype(str).isin(target_statuses)
             
-            # 두 조건을 모두 만족해야 함 (AND)
             target_df = df[mask_unpaid & mask_status].copy()
             
         except Exception:
-            # 변환 에러 시 전체 표시 (안전장치)
             target_df = df
 
         if target_df.empty: return
@@ -149,21 +144,35 @@ class PaymentView(ctk.CTkFrame):
             self.tree.insert("", "end", iid=idx, values=values, tags=row_tags)
 
     def on_process_payment(self):
-        """입금 처리 팝업 호출"""
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showwarning("경고", "입금 처리할 항목을 선택해주세요.")
+        """[수정] 입금 처리 팝업 호출 (다중 선택 지원)"""
+        selected_items = self.tree.selection()
+        if not selected_items:
+            messagebox.showwarning("경고", "입금 처리할 항목을 하나 이상 선택해주세요.")
             return
         
-        # 선택된 항목의 iid(DataFrame 인덱스) 가져오기
-        idx = int(selected[0])
-        
-        # 인덱스를 사용하여 관리번호 조회
+        # 첫 번째 선택 항목 정보 가져오기
+        first_idx = int(selected_items[0])
         try:
-            mgmt_no = self.dm.df_data.loc[idx, "관리번호"]
-        except (KeyError, IndexError):
+            first_client = self.dm.df_data.loc[first_idx, "업체명"]
+        except KeyError:
             messagebox.showerror("오류", "선택된 항목의 정보를 찾을 수 없습니다.")
             return
+        
+        target_mgmt_nos = set()
 
-        # 팝업 매니저를 통해 입금 팝업 열기 (관리번호 전달)
-        self.pm.open_payment_popup(mgmt_no)
+        # 모든 선택된 항목이 동일한 업체명을 가졌는지 확인
+        for item in selected_items:
+            idx = int(item)
+            try:
+                client = self.dm.df_data.loc[idx, "업체명"]
+                mgmt_no = self.dm.df_data.loc[idx, "관리번호"]
+            except KeyError: continue
+            
+            if client != first_client:
+                messagebox.showwarning("주의", "동일한 업체의 항목들만 일괄 입금 처리가 가능합니다.")
+                return
+            
+            target_mgmt_nos.add(mgmt_no)
+
+        # 팝업 호출 (관리번호 리스트 전달)
+        self.pm.open_payment_popup(list(target_mgmt_nos))
