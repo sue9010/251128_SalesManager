@@ -33,7 +33,7 @@ class DeliveryView(ctk.CTkFrame):
         ctk.CTkButton(toolbar, text="검색", width=60, command=self.refresh_data, 
                       fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="left")
 
-        # [수정] 다중 선택 후 일괄 처리 버튼
+        # 다중 선택 후 일괄 처리 버튼
         ctk.CTkButton(toolbar, text="📦 선택 항목 일괄 출고", width=150, command=self.on_process_delivery,
                       fg_color=COLORS["success"], hover_color="#26A65B").pack(side="right", padx=(0, 10))
         
@@ -46,7 +46,6 @@ class DeliveryView(ctk.CTkFrame):
         scroll_y = ctk.CTkScrollbar(tree_frame, orientation="vertical")
         scroll_y.pack(side="right", fill="y", padx=(0, 5), pady=5)
 
-        # [수정] selectmode='extended' (기본값) 확인 (다중 선택 가능)
         self.tree = ttk.Treeview(tree_frame, columns=self.display_cols, show="headings", yscrollcommand=scroll_y.set, selectmode="extended")
         self.tree.pack(fill="both", expand=True, padx=5, pady=5)
         scroll_y.configure(command=self.tree.yview)
@@ -94,7 +93,7 @@ class DeliveryView(ctk.CTkFrame):
         if df.empty: return
 
         keyword = self.entry_search.get().strip().lower()
-        target_status = ["생산중", "납품대기/입금완료","납품대기"]
+        target_status = ["생산중", "납품대기"]
         target_df = df[df["Status"].astype(str).isin(target_status)]
         
         if target_df.empty: return
@@ -127,23 +126,29 @@ class DeliveryView(ctk.CTkFrame):
             self.tree.insert("", "end", iid=idx, values=values)
 
     def on_process_delivery(self):
-        """납품 처리 팝업 호출 (동일 관리번호에 대해서만)"""
+        """[수정] 납품 처리 팝업 호출 (동일 업체명 일괄 처리 가능)"""
         selected_items = self.tree.selection()
         if not selected_items:
             messagebox.showwarning("경고", "출고 처리할 항목을 하나 이상 선택해주세요.")
             return
         
-        # 첫 번째 선택 항목에서 관리번호 가져오기
+        # 첫 번째 선택 항목 정보 가져오기
         first_item_idx = int(selected_items[0])
-        first_mgmt_no = self.dm.df_data.loc[first_item_idx, "관리번호"]
+        first_client = self.dm.df_data.loc[first_item_idx, "업체명"]
         
-        # 모든 선택된 항목이 동일한 관리번호를 가졌는지 확인
+        target_mgmt_nos = set() # 중복 제거를 위해 set 사용
+
+        # 모든 선택된 항목이 동일한 업체명을 가졌는지 확인
         for item in selected_items:
             item_idx = int(item)
+            client = self.dm.df_data.loc[item_idx, "업체명"]
             mgmt_no = self.dm.df_data.loc[item_idx, "관리번호"]
-            if mgmt_no != first_mgmt_no:
-                messagebox.showwarning("주의", "하나의 주문(동일한 관리번호)에 대해서만 납품 처리가 가능합니다.")
+            
+            if client != first_client:
+                messagebox.showwarning("주의", "동일한 업체의 항목들만 일괄 출고 처리가 가능합니다.")
                 return
+            
+            target_mgmt_nos.add(mgmt_no)
 
-        # 팝업 호출 (관리번호 전달)
-        self.pm.open_delivery_popup(first_mgmt_no)
+        # 팝업 호출 (관리번호 리스트 전달)
+        self.pm.open_delivery_popup(list(target_mgmt_nos))

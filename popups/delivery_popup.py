@@ -9,34 +9,33 @@ from popups.base_popup import BasePopup
 from styles import COLORS, FONTS
 
 class DeliveryPopup(BasePopup):
-    def __init__(self, parent, data_manager, refresh_callback, mgmt_no):
-        if not mgmt_no:
-            messagebox.showerror("오류", "납품 처리할 대상(관리번호)이 지정되지 않았습니다.", parent=parent)
+    def __init__(self, parent, data_manager, refresh_callback, mgmt_nos):
+        # [수정] 관리번호 리스트 처리
+        if isinstance(mgmt_nos, list):
+            self.mgmt_nos = mgmt_nos
+        else:
+            self.mgmt_nos = [mgmt_nos]
+
+        if not self.mgmt_nos:
+            messagebox.showerror("오류", "납품 처리할 대상이 지정되지 않았습니다.", parent=parent)
             self.destroy()
             return
 
         self.item_widgets_map = {} # row_index를 키로 사용하여 위젯을 관리
-        super().__init__(parent, data_manager, refresh_callback, popup_title="납품", mgmt_no=mgmt_no)
+        
+        # BasePopup에는 대표 관리번호(첫 번째)만 전달하여 초기화
+        super().__init__(parent, data_manager, refresh_callback, popup_title="납품", mgmt_no=self.mgmt_nos[0])
 
     def _create_widgets(self):
-        # BasePopup의 기본 위젯 생성 (상단, 하단, 버튼 등)
-        # 단, _create_items_frame은 아래에서 오버라이드된 버전이 호출됨
         super()._create_widgets()
-        
-        # 납품 전용 위젯 생성 및 상단 레이아웃 재구성
         self._create_delivery_specific_widgets()
-        
-        # [수정] 팝업 전체 너비 축소 (1100 -> 900)
         self.geometry("900x750")
 
-    # [수정] BasePopup의 메서드를 오버라이드하여 납품 전용 헤더 생성
     def _create_items_frame(self):
         """품목을 표시하는 스크롤 가능한 프레임과 헤더를 생성합니다. (납품 전용)"""
         list_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"])
         list_frame.pack(fill="both", expand=True, padx=20, pady=5)
 
-        # [수정] 납품 팝업 전용 헤더 및 너비 설정 (총합 750px)
-        # 품명(250) + 모델명(300) + 잔여(100) + 출고(100)
         headers = ["품명", "모델명", "잔여 수량", "출고 수량"]
         widths = [250, 300, 100, 100]
         
@@ -50,12 +49,8 @@ class DeliveryPopup(BasePopup):
         self.scroll_items = ctk.CTkScrollableFrame(list_frame, fg_color="transparent")
         self.scroll_items.pack(fill="both", expand=True)
 
-        # 납품 팝업에서는 '품목 추가' 버튼이 필요 없으므로 생성하지 않음
-
     def _create_delivery_specific_widgets(self):
         # --- 납품 정보 위젯 생성 ---
-        
-        # 1. 새 위젯 생성 (출고일, 운송방법, 송장번호) -> self.top_frame에 배치
         self.lbl_delivery_date = ctk.CTkLabel(self.top_frame, text="출고일", font=FONTS["main_bold"])
         self.entry_delivery_date = ctk.CTkEntry(self.top_frame, width=150)
         self.entry_delivery_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
@@ -66,10 +61,7 @@ class DeliveryPopup(BasePopup):
         self.lbl_invoice_no = ctk.CTkLabel(self.top_frame, text="송장번호", font=FONTS["main_bold"])
         self.entry_invoice_no = ctk.CTkEntry(self.top_frame, width=200)
 
-        # 2. 레이아웃 재구성 (3행 구조)
-        # BasePopup에서 이미 grid로 배치된 위젯들을 포함하여 재배치
-        
-        # 1행: 관리번호 | 고객사 | 상태
+        # 레이아웃 재구성 (3행 구조)
         self.lbl_id.grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.entry_id.grid(row=0, column=1, padx=5, pady=5, sticky="w")
         
@@ -79,11 +71,9 @@ class DeliveryPopup(BasePopup):
         self.lbl_status.grid(row=0, column=4, padx=5, pady=5, sticky="w")
         self.combo_status.grid(row=0, column=5, padx=5, pady=5, sticky="w")
 
-        # 2행: 프로젝트명 (가로 확장)
         self.lbl_project.grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.entry_project.grid(row=1, column=1, columnspan=5, padx=5, pady=5, sticky="ew")
 
-        # 3행: 출고일 | 운송방법 | 송장번호
         self.lbl_delivery_date.grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.entry_delivery_date.grid(row=2, column=1, padx=5, pady=5, sticky="w")
         
@@ -93,9 +83,7 @@ class DeliveryPopup(BasePopup):
         self.lbl_invoice_no.grid(row=2, column=4, padx=5, pady=5, sticky="w")
         self.entry_invoice_no.grid(row=2, column=5, padx=5, pady=5, sticky="w")
 
-        # 버튼 텍스트 변경 (저장 -> 납품 처리)
         try:
-            # BasePopup의 구조에 따라 버튼 프레임 위치 찾기 (마지막 위젯일 확률 높음)
             widgets = self.winfo_children()
             if widgets:
                 btn_frame = widgets[-1]
@@ -109,8 +97,8 @@ class DeliveryPopup(BasePopup):
         """데이터 로드 및 UI 반영"""
         df = self.dm.df_data
         
-        # 납품 가능한 항목만 필터링
-        rows = df[df["관리번호"] == self.mgmt_no].copy()
+        # [수정] 여러 관리번호에 해당하는 행들을 모두 가져옴
+        rows = df[df["관리번호"].isin(self.mgmt_nos)].copy()
         
         if rows.empty:
             messagebox.showinfo("정보", "데이터를 찾을 수 없습니다.", parent=self)
@@ -119,7 +107,7 @@ class DeliveryPopup(BasePopup):
 
         first = rows.iloc[0]
 
-        # 1. 기본 정보 위젯 리스트
+        # 1. 기본 정보 로드 (첫 번째 항목 기준)
         widgets_to_load = [
             (self.entry_client, "업체명"),
             (self.entry_project, "프로젝트명"),
@@ -127,28 +115,30 @@ class DeliveryPopup(BasePopup):
             (self.entry_note, "비고")
         ]
 
-        # 2. 관리번호 설정
+        # 2. 관리번호 설정 (다중 선택 시 표기 변경)
         self.entry_id.configure(state="normal")
         self.entry_id.delete(0, "end")
-        self.entry_id.insert(0, str(self.mgmt_no))
+        if len(self.mgmt_nos) > 1:
+            self.entry_id.insert(0, f"{self.mgmt_nos[0]} 외 {len(self.mgmt_nos)-1}건")
+        else:
+            self.entry_id.insert(0, str(self.mgmt_nos[0]))
         self.entry_id.configure(state="readonly")
 
         # 3. 상태 설정
         self.combo_status.set(str(first.get("Status", "")))
         self.combo_status.configure(state="disabled")
 
-        # 4. 각 텍스트 위젯에 데이터 로드
+        # 4. 텍스트 위젯 데이터 로드
         for widget, col in widgets_to_load:
+            if widget is None: continue
             val = str(first.get(col, ""))
             if val == "nan": val = ""
-            
             widget.configure(state="normal")
             widget.delete(0, "end")
             widget.insert(0, val)
             widget.configure(state="readonly")
 
-        # 5. 납품 대상 품목 리스트 생성
-        # 완료, 취소, 보류 및 이미 납품 완료된 건 제외
+        # 5. 납품 대상 품목 리스트 생성 (모든 관리번호의 품목들을 표시)
         target_rows = rows[~rows["Status"].isin(["납품완료/입금대기", "완료", "취소", "보류"])]
         
         for index, row_data in target_rows.iterrows():
@@ -158,14 +148,11 @@ class DeliveryPopup(BasePopup):
         row_frame = ctk.CTkFrame(self.scroll_items, fg_color="transparent", height=35)
         row_frame.pack(fill="x", pady=2)
 
-        # [수정] 각 위젯 너비 조정 (헤더와 동기화: 250, 300, 100, 100)
-        
         # 품명 (250)
         ctk.CTkLabel(row_frame, text=str(item_data.get("품목명", "")), width=250, anchor="w").pack(side="left", padx=2)
         # 모델명 (300)
         ctk.CTkLabel(row_frame, text=str(item_data.get("모델명", "")), width=300, anchor="w").pack(side="left", padx=2)
         
-        # 잔여 수량 (안전한 변환)
         try:
             raw_qty = str(item_data.get("수량", "0")).replace(",", "")
             current_qty = float(raw_qty)
@@ -175,12 +162,11 @@ class DeliveryPopup(BasePopup):
         # 잔여 수량 (100)
         ctk.CTkLabel(row_frame, text=f"{current_qty:g}", width=100).pack(side="left", padx=2)
         
-        # 출고 수량 입력창 (100) - 기본값: 잔여 수량
+        # 출고 수량 입력창 (100)
         entry_deliver_qty = ctk.CTkEntry(row_frame, width=100, justify="center")
         entry_deliver_qty.pack(side="left", padx=2)
         entry_deliver_qty.insert(0, f"{current_qty:g}")
 
-        # 위젯 관리 맵에 저장
         self.item_widgets_map[row_index] = {
             "current_qty": current_qty,
             "entry": entry_deliver_qty,
@@ -199,7 +185,6 @@ class DeliveryPopup(BasePopup):
 
         update_requests = []
         
-        # 입력된 출고 수량 검증 및 요청 목록 생성
         for index, item_widget in self.item_widgets_map.items():
             try:
                 val = item_widget["entry"].get().replace(",", "")
@@ -212,7 +197,6 @@ class DeliveryPopup(BasePopup):
                 messagebox.showerror("오류", "출고 수량은 0보다 작을 수 없습니다.", parent=self)
                 return
             
-            # 0이면 처리하지 않음 (건너뜀)
             if deliver_qty == 0:
                 continue
 
@@ -241,10 +225,8 @@ class DeliveryPopup(BasePopup):
                 
                 row_data = dfs["data"].loc[idx]
                 
-                try:
-                    db_qty = float(str(row_data["수량"]).replace(",", ""))
-                except:
-                    db_qty = 0
+                try: db_qty = float(str(row_data["수량"]).replace(",", ""))
+                except: db_qty = 0
 
                 if deliver_qty > db_qty:
                     deliver_qty = db_qty
@@ -256,7 +238,7 @@ class DeliveryPopup(BasePopup):
                 try: tax_rate = float(str(row_data.get("세율(%)", 0)).replace(",", "")) / 100
                 except: tax_rate = 0
 
-                # [수정] 상태 결정 로직 추가
+                # 상태 결정 로직
                 current_status = str(row_data.get("Status", ""))
                 if current_status == "납품대기/입금완료":
                     new_status = "완료"
@@ -306,7 +288,12 @@ class DeliveryPopup(BasePopup):
             if not processed_items:
                 return False, "처리 가능한 항목이 없거나 데이터가 변경되었습니다."
 
-            log_msg = f"번호 [{self.mgmt_no}] 납품 처리 / {', '.join(processed_items)}"
+            # [수정] 로그 기록 (다중 처리 표기)
+            mgmt_str = self.mgmt_nos[0]
+            if len(self.mgmt_nos) > 1:
+                mgmt_str += f" 외 {len(self.mgmt_nos)-1}건"
+            
+            log_msg = f"번호 [{mgmt_str}] 납품 처리 / {', '.join(processed_items)}"
             new_log = self.dm._create_log_entry("납품 처리", log_msg)
             dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
             return True, ""

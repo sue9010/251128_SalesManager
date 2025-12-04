@@ -2,7 +2,7 @@ from popups.client_popup import ClientPopup
 from popups.delivery_popup import DeliveryPopup
 from popups.payment_popup import PaymentPopup
 from popups.quote_popup import QuotePopup
-from popups.order_popup import OrderPopup # [신규]
+from popups.order_popup import OrderPopup
 from popups.settings_popup import SettingsPopup
 
 
@@ -26,8 +26,12 @@ class PopupManager:
         """주문 관리 팝업 열기"""
         win = OrderPopup(self.parent, self.dm, self.refresh_callback, mgmt_no)
 
-    def open_delivery_popup(self, mgmt_no):
-        win = DeliveryPopup(self.parent, self.dm, self.refresh_callback, mgmt_no)
+    def open_delivery_popup(self, mgmt_nos):
+        """
+        납품 처리 팝업 열기
+        - mgmt_nos: 관리번호 (단일 문자열 또는 문자열 리스트)
+        """
+        win = DeliveryPopup(self.parent, self.dm, self.refresh_callback, mgmt_nos)
 
     def open_payment_popup(self, mgmt_no):
         win = PaymentPopup(self.parent, self.dm, self.refresh_callback, mgmt_no)
