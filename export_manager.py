@@ -72,8 +72,8 @@ class ExportManager:
                 # 수식 대신 계산된 값 입력 (또는 엑셀 수식 유지하려면 문자열 "=..." 사용)
                 ws[f"G{r_idx}"] = item.get('amount', 0)
 
-            # [주문요청사항]
-            ws["B28"] = quote_info.get('req_note', '')
+            # [비고] (B28 셀에 '비고' 내용 입력)
+            ws["B28"] = quote_info.get('note', '')
 
             # 임시 파일 저장 경로 (바탕화면)
             desktop = os.path.join(os.path.expanduser("~"), "Desktop")

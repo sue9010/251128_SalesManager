@@ -95,15 +95,18 @@ class QuotePopup(BasePopup):
 
         # 총계 라벨 프레임 (품목 추가 버튼 '앞'에 배치)
         items_frame_content = items_frame.winfo_children()
-        add_item_button = next(w for w in items_frame_content if isinstance(w, ctk.CTkButton))
-        
-        total_frame = ctk.CTkFrame(items_frame, fg_color="transparent")
-        total_frame.pack(fill="x", pady=5, before=add_item_button)
+        try:
+            add_item_button = next(w for w in items_frame_content if isinstance(w, ctk.CTkButton))
+            
+            total_frame = ctk.CTkFrame(items_frame, fg_color="transparent")
+            total_frame.pack(fill="x", pady=5, before=add_item_button)
 
-        self.lbl_total_qty = ctk.CTkLabel(total_frame, text="총 수량: 0", font=FONTS["main_bold"])
-        self.lbl_total_qty.pack(side="left", padx=10)
-        self.lbl_total_amt = ctk.CTkLabel(total_frame, text="총 합계금액: 0", font=FONTS["header"], text_color=COLORS["primary"])
-        self.lbl_total_amt.pack(side="left", padx=20)
+            self.lbl_total_qty = ctk.CTkLabel(total_frame, text="총 수량: 0", font=FONTS["main_bold"])
+            self.lbl_total_qty.pack(side="left", padx=10)
+            self.lbl_total_amt = ctk.CTkLabel(total_frame, text="총 합계금액: 0", font=FONTS["header"], text_color=COLORS["primary"])
+            self.lbl_total_amt.pack(side="left", padx=20)
+        except StopIteration:
+            pass # 버튼이 없는 경우(보기 모드 등) 패스
 
     def _on_client_select(self, client_name):
         df = self.dm.df_clients
@@ -379,7 +382,8 @@ class QuotePopup(BasePopup):
             "client_name": client_name,
             "mgmt_no": self.entry_id.get(),
             "date": self.entry_date.get(),
-            "req_note": self.entry_req.get()
+            "req_note": self.entry_req.get(),
+            "note": self.entry_note.get()  # [추가] 비고 데이터
         }
         
         items = []
