@@ -246,7 +246,6 @@ class DeliveryPopup(BasePopup):
                 except:
                     db_qty = 0
 
-                # 만약 그 사이에 누가 수정을 해서 수량이 줄어들었다면?
                 if deliver_qty > db_qty:
                     deliver_qty = db_qty
                     if deliver_qty <= 0: continue
@@ -257,16 +256,23 @@ class DeliveryPopup(BasePopup):
                 try: tax_rate = float(str(row_data.get("세율(%)", 0)).replace(",", "")) / 100
                 except: tax_rate = 0
 
-                # Case 1: 전량 출고 (행 업데이트)
+                # [수정] 상태 결정 로직 추가
+                current_status = str(row_data.get("Status", ""))
+                if current_status == "납품대기/입금완료":
+                    new_status = "완료"
+                else:
+                    new_status = "납품완료/입금대기"
+
+                # Case 1: 전량 출고
                 if abs(deliver_qty - db_qty) < 0.000001:
-                    dfs["data"].at[idx, "Status"] = "납품완료/입금대기"
+                    dfs["data"].at[idx, "Status"] = new_status
                     dfs["data"].at[idx, "출고일"] = delivery_date
                     dfs["data"].at[idx, "송장번호"] = invoice_no
                     dfs["data"].at[idx, "운송방법"] = shipping_method
                     total_amt = float(str(row_data.get("합계금액", 0)).replace(",", ""))
                     dfs["data"].at[idx, "미수금액"] = total_amt
                     
-                # Case 2: 부분 출고 (행 분할)
+                # Case 2: 부분 출고
                 else: 
                     remain_qty = db_qty - deliver_qty
                     
@@ -287,7 +293,7 @@ class DeliveryPopup(BasePopup):
                     new_row["세액"] = new_tax
                     new_row["합계금액"] = new_supply + new_tax
                     new_row["미수금액"] = new_supply + new_tax
-                    new_row["Status"] = "납품완료/입금대기"
+                    new_row["Status"] = new_status
                     new_row["출고일"] = delivery_date
                     new_row["송장번호"] = invoice_no
                     new_row["운송방법"] = shipping_method
