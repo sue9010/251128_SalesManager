@@ -115,7 +115,6 @@ class QuotePopup(BasePopup):
             entry.pack(side="left", fill="x", expand=True)
             setattr(self, var_name, entry)
             return entry
-
         # Row 0: 고객사 (Autocomplete)
         f_client = ctk.CTkFrame(info_grid, fg_color="transparent")
         f_client.grid(row=0, column=0, columnspan=2, sticky="ew", padx=2, pady=2)
@@ -123,12 +122,12 @@ class QuotePopup(BasePopup):
         from popups.autocomplete_entry import AutocompleteEntry
         self.entry_client = AutocompleteEntry(f_client, font=FONTS["main"], height=28,
                                             completevalues=self.dm.df_clients["업체명"].unique().tolist(),
-                                            command=self._on_client_select)
+                                            command=self._on_client_select,
+                                            on_focus_out=self._on_client_select)
         self.entry_client.pack(side="left", fill="x", expand=True)
         self.entry_client.set_completion_list(self.dm.df_clients["업체명"].unique().tolist())
         
-        # 직접 입력 후 포커스 아웃/엔터 시에도 업데이트
-        self.entry_client.bind("<FocusOut>", lambda e: self._on_client_select(self.entry_client.get()))
+        # 직접 입력 후 엔터 시에도 업데이트 (FocusOut은 AutocompleteEntry 내부에서 처리)
         self.entry_client.bind("<Return>", lambda e: self._on_client_select(self.entry_client.get()))
         
         # Row 1: 프로젝트
@@ -180,7 +179,7 @@ class QuotePopup(BasePopup):
         ctk.CTkLabel(parent, text="문서 발행", font=FONTS["header"]).pack(anchor="w", padx=10, pady=(0, 5))
         
         self.btn_export = ctk.CTkButton(parent, text="📄 견적서 발행 (PDF)", command=self.export_quote, height=30,
-                                      fg_color=COLORS["bg_light"], hover_color="primary_hover", 
+                                      fg_color=COLORS["bg_light"], hover_color=COLORS["primary_hover"], 
                                       text_color=COLORS["text"], font=FONTS["main_bold"])
         self.btn_export.pack(fill="x", padx=10, pady=5)
 

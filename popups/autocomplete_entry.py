@@ -6,10 +6,11 @@ class AutocompleteEntry(ctk.CTkEntry):
     """
     입력 시 자동완성 리스트를 보여주는 CTkEntry 위젯
     """
-    def __init__(self, master, completevalues=None, command=None, **kwargs):
+    def __init__(self, master, completevalues=None, command=None, on_focus_out=None, **kwargs):
         super().__init__(master, **kwargs)
         self.completevalues = completevalues or []
         self.command = command
+        self.on_focus_out = on_focus_out
         self.listbox_window = None
         self.listbox = None
         
@@ -61,8 +62,9 @@ class AutocompleteEntry(ctk.CTkEntry):
             )
             self.listbox.pack(fill="both", expand=True)
             
-            self.listbox.bind("<<ListboxSelect>>", self._on_select)
+            self.listbox.bind("<ButtonRelease-1>", self._on_select)
             self.listbox.bind("<Return>", self._on_select)
+            self.listbox.bind("<Tab>", self._on_select)
             self.listbox.bind("<Right>", self._on_select)
             self.listbox.bind("<Escape>", lambda e: self._close_listbox())
             
@@ -91,6 +93,7 @@ class AutocompleteEntry(ctk.CTkEntry):
                 self.delete(0, "end")
                 self.insert(0, value)
                 self._close_listbox()
+                self.focus_set() # Return focus to entry
                 if self.command:
                     self.command(value)
         except: pass
@@ -105,10 +108,22 @@ class AutocompleteEntry(ctk.CTkEntry):
         self.after(150, self._check_focus)
         
     def _check_focus(self):
-        if self.listbox_window:
-            try:
-                focus_widget = self.winfo_toplevel().focus_get()
-                if focus_widget != self.listbox:
-                    self._close_listbox()
-            except:
-                self._close_listbox()
+        # Check where the focus is
+        try:
+            focus_widget = self.winfo_toplevel().focus_get()
+            
+            # If focus is on the listbox, do nothing (don't close, don't trigger callback)
+            if self.listbox and focus_widget == self.listbox:
+                return
+
+            # If focus is back on self (e.g. after clicking listbox item), do nothing
+            if focus_widget == self:
+                return
+                
+            # Focus is truly lost
+            self._close_listbox()
+            if self.on_focus_out:
+                self.on_focus_out(self.get())
+                
+        except:
+            self._close_listbox()
