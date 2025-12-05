@@ -12,7 +12,7 @@ import pandas as pd
 from config import Config
 from popups.base_popup import BasePopup
 from styles import COLORS, FONTS
-from export_manager import ExportManager # [신규] ExportManager import
+from export_manager import ExportManager 
 
 class DeliveryPopup(BasePopup):
     def __init__(self, parent, data_manager, refresh_callback, mgmt_nos):
@@ -28,7 +28,7 @@ class DeliveryPopup(BasePopup):
 
         self.item_widgets_map = {}
         self.full_paths = {} 
-        self.export_manager = ExportManager() # [신규] 인스턴스 생성
+        self.export_manager = ExportManager() 
         
         super().__init__(parent, data_manager, refresh_callback, popup_title="납품", mgmt_no=self.mgmt_nos[0])
 
@@ -55,7 +55,6 @@ class DeliveryPopup(BasePopup):
         self.scroll_items.pack(fill="both", expand=True)
 
     def _create_delivery_specific_widgets(self):
-        # 상단 입력 필드들
         self.lbl_delivery_date = ctk.CTkLabel(self.top_frame, text="출고일", font=FONTS["main_bold"])
         self.entry_delivery_date = ctk.CTkEntry(self.top_frame, width=150)
         self.entry_delivery_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
@@ -63,14 +62,17 @@ class DeliveryPopup(BasePopup):
         self.lbl_shipping_method = ctk.CTkLabel(self.top_frame, text="운송 방법", font=FONTS["main_bold"])
         self.entry_shipping_method = ctk.CTkEntry(self.top_frame, width=150)
 
+        # [신규] 운송 계정
+        self.lbl_shipping_account = ctk.CTkLabel(self.top_frame, text="운송 계정", font=FONTS["main_bold"])
+        self.entry_shipping_account = ctk.CTkEntry(self.top_frame, width=150)
+
         self.lbl_invoice_no = ctk.CTkLabel(self.top_frame, text="송장번호", font=FONTS["main_bold"])
         self.entry_invoice_no = ctk.CTkEntry(self.top_frame, width=200)
 
-        # [신규] PI 발행 버튼 추가
         self.btn_export_pi = ctk.CTkButton(self.top_frame, text="PI 발행", command=self.export_pi, width=100, height=32,
                                         fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], text_color="white", font=FONTS["main_bold"])
 
-        # Grid 배치
+        # Row 0
         self.lbl_id.grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.entry_id.grid(row=0, column=1, padx=5, pady=5, sticky="w")
         
@@ -80,22 +82,27 @@ class DeliveryPopup(BasePopup):
         self.lbl_status.grid(row=0, column=4, padx=5, pady=5, sticky="w")
         self.combo_status.grid(row=0, column=5, padx=5, pady=5, sticky="w")
 
+        # Row 1
         self.lbl_project.grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.entry_project.grid(row=1, column=1, columnspan=5, padx=5, pady=5, sticky="ew")
         
-        # [신규] PI 버튼 배치 (프로젝트명 오른쪽)
         self.btn_export_pi.grid(row=1, column=6, padx=5, pady=5, sticky="e")
 
+        # Row 2 (레이아웃 조정: 출고일, 운송방법, 운송계정, 송장번호)
         self.lbl_delivery_date.grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.entry_delivery_date.grid(row=2, column=1, padx=5, pady=5, sticky="w")
         
         self.lbl_shipping_method.grid(row=2, column=2, padx=5, pady=5, sticky="w")
         self.entry_shipping_method.grid(row=2, column=3, padx=5, pady=5, sticky="w")
         
-        self.lbl_invoice_no.grid(row=2, column=4, padx=5, pady=5, sticky="w")
-        self.entry_invoice_no.grid(row=2, column=5, padx=5, pady=5, sticky="w")
+        # [신규] 운송계정 배치
+        self.lbl_shipping_account.grid(row=2, column=4, padx=5, pady=5, sticky="w")
+        self.entry_shipping_account.grid(row=2, column=5, padx=5, pady=5, sticky="w")
 
-        # 버튼 텍스트 변경 (저장 -> 납품 처리)
+        # 송장번호는 다음 줄 또는 옆으로 이동 (여기선 6, 7 컬럼 사용)
+        self.lbl_invoice_no.grid(row=2, column=6, padx=5, pady=5, sticky="w")
+        self.entry_invoice_no.grid(row=2, column=7, padx=5, pady=5, sticky="w")
+
         try:
             widgets = self.winfo_children()
             if widgets:
@@ -106,7 +113,6 @@ class DeliveryPopup(BasePopup):
         except:
             pass
 
-    # ... (_create_bottom_frame 등 기존 코드 유지) ...
     def _create_bottom_frame(self):
         super()._create_bottom_frame()
         
@@ -230,6 +236,20 @@ class DeliveryPopup(BasePopup):
             widget.insert(0, val)
             widget.configure(state="readonly")
         
+        # 고객사 운송방법 및 운송계정 자동 로드
+        client_name = str(first.get("업체명", ""))
+        
+        default_shipping = self.dm.get_client_shipping_method(client_name)
+        if default_shipping:
+            self.entry_shipping_method.delete(0, "end")
+            self.entry_shipping_method.insert(0, default_shipping)
+
+        # [신규] 운송 계정 로드
+        default_account = self.dm.get_client_shipping_account(client_name)
+        if default_account:
+            self.entry_shipping_account.delete(0, "end")
+            self.entry_shipping_account.insert(0, default_account)
+
         if self.entry_waybill_file:
             path = str(first.get("운송장경로", "")).replace("nan", "")
             if path: self.update_file_entry("운송장경로", path)
@@ -276,7 +296,6 @@ class DeliveryPopup(BasePopup):
             "row_data": item_data
         }
 
-    # [신규] PI 발행 기능 구현
     def export_pi(self):
         client_name = self.entry_client.get()
         if not client_name:
@@ -292,7 +311,6 @@ class DeliveryPopup(BasePopup):
             self.attributes("-topmost", True)
             return
         
-        # 첫 번째 관리번호 데이터를 기준으로 정보 수집
         main_mgmt_no = self.mgmt_nos[0]
         rows = self.dm.df_data[self.dm.df_data["관리번호"] == main_mgmt_no]
         if rows.empty: return
@@ -301,11 +319,10 @@ class DeliveryPopup(BasePopup):
         order_info = {
             "client_name": client_name,
             "mgmt_no": main_mgmt_no,
-            "date": first.get("수주일", ""), # 주문일 기준
-            "po_no": first.get("발주서번호", ""), # 발주서 번호
+            "date": first.get("수주일", ""), 
+            "po_no": first.get("발주서번호", ""), 
         }
         
-        # 품목 정보 수집 (현재 납품 팝업에 있는 항목이 아니라, DB에 있는 해당 관리번호의 모든 품목을 가져옵니다)
         items = []
         for _, row in rows.iterrows():
             items.append({
@@ -317,7 +334,6 @@ class DeliveryPopup(BasePopup):
                 "amount": float(str(row.get("공급가액", 0)).replace(",", "") or 0)
             })
 
-        # ExportManager 호출
         success, result = self.export_manager.export_pi_to_pdf(
             client_row.iloc[0], order_info, items
         )

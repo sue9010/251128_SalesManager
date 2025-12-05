@@ -494,12 +494,7 @@ class DataManager:
             print(f"생산 상태 로드 실패: {e}")
             return {}
 
-    # [NEW] 시리얼 번호 매핑 정보 가져오기
     def get_serial_number_map(self):
-        """
-        생산 요청 파일에서 (관리번호, 모델명, 상세) -> 시리얼 번호 매핑 정보를 읽어옵니다.
-        A열(0): 관리번호, C열(2): 모델명, D열(3): 상세, K열(10): 시리얼 번호
-        """
         if not os.path.exists(self.production_request_path):
             return {}
 
@@ -519,9 +514,8 @@ class DataManager:
                 desc = str(row[3]).strip() if row[3] else ""
                 serial = str(row[10]).strip() if row[10] else "-"
                 
-                # 키를 튜플로 생성 (관리번호, 모델명, 상세)
                 key = (mgmt_no, model, desc)
-                if mgmt_no: # 관리번호가 있는 경우만 유효
+                if mgmt_no: 
                     serial_map[key] = serial
             
             wb.close()
@@ -529,3 +523,28 @@ class DataManager:
         except Exception as e:
             print(f"시리얼 번호 로드 실패: {e}")
             return {}
+
+    def get_client_shipping_method(self, client_name):
+        if self.df_clients.empty:
+            return ""
+            
+        row = self.df_clients[self.df_clients["업체명"] == client_name]
+        if not row.empty:
+            val = row.iloc[0].get("운송방법", "")
+            return str(val).strip() if str(val).lower() != "nan" else ""
+        return ""
+
+    # [NEW] 고객사 운송계정 조회
+    def get_client_shipping_account(self, client_name):
+        """
+        Customers 시트에서 특정 업체의 운송계정(K열)을 반환합니다.
+        """
+        if self.df_clients.empty:
+            return ""
+            
+        row = self.df_clients[self.df_clients["업체명"] == client_name]
+        if not row.empty:
+            # K열은 '운송계정' 컬럼입니다.
+            val = row.iloc[0].get("운송계정", "")
+            return str(val).strip() if str(val).lower() != "nan" else ""
+        return ""
