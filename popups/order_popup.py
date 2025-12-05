@@ -185,33 +185,14 @@ class OrderPopup(BasePopup):
 
         ctk.CTkFrame(main_frame, height=1, fg_color=COLORS["border"]).pack(fill="x", pady=10)
 
-        ctk.CTkLabel(main_frame, text="발주서 파일", font=FONTS["header"]).pack(anchor="w", pady=(0, 5))
-        
-        self.drop_frame = ctk.CTkFrame(main_frame, fg_color=COLORS["bg_dark"], border_width=1, border_color=COLORS["border"])
-        self.drop_frame.pack(fill="both", expand=True, pady=0) # 남은 공간 채우기
-        
-        self.lbl_drop = ctk.CTkLabel(self.drop_frame, text="파일을 여기에 드래그하세요", text_color=COLORS["text_dim"])
-        self.lbl_drop.pack(pady=(15, 5))
-        
-        file_input_frame = ctk.CTkFrame(self.drop_frame, fg_color="transparent")
-        file_input_frame.pack(fill="x", padx=10, pady=5)
-        
-        self.entry_order_file = ctk.CTkEntry(file_input_frame, placeholder_text="파일 경로", height=28)
-        self.entry_order_file.pack(side="left", fill="x", expand=True)
-        
-        ctk.CTkButton(file_input_frame, text="열기", width=50, height=28,
-                      command=lambda: self.open_file(self.entry_order_file, "발주서경로"),
-                      fg_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="left", padx=(5, 0))
-                      
-        ctk.CTkButton(file_input_frame, text="삭제", width=50, height=28,
-                      command=lambda: self.clear_entry(self.entry_order_file, "발주서경로"),
-                      fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left", padx=(5, 0))
+        # 발주서 파일 입력 (Standardized UI)
+        self.entry_order_file, _, _ = self.create_file_input_row(main_frame, "발주서 파일", "발주서경로")
 
         # DnD 설정
         try:
             def hook_dnd():
-                if self.drop_frame.winfo_exists():
-                    windnd.hook_dropfiles(self.drop_frame.winfo_id(), self.on_drop)
+                if self.entry_order_file.winfo_exists():
+                    windnd.hook_dropfiles(self.entry_order_file.winfo_id(), self.on_drop)
             self.after(200, hook_dnd)
         except Exception as e:
             print(f"DnD Setup Error: {e}")
@@ -459,7 +440,6 @@ class OrderPopup(BasePopup):
         if col_name == "발주서경로" and self.entry_order_file:
             self.entry_order_file.delete(0, "end")
             self.entry_order_file.insert(0, os.path.basename(full_path))
-            self.lbl_drop.configure(text=os.path.basename(full_path), text_color=COLORS["primary"])
 
     def on_drop(self, filenames):
         if filenames:
@@ -467,49 +447,6 @@ class OrderPopup(BasePopup):
             except: file_path = filenames[0].decode('utf-8', errors='ignore')
             self.update_file_entry("발주서경로", file_path)
 
-    def open_file(self, entry_widget, col_name):
-        path = self.full_paths.get(col_name)
-        if not path: path = entry_widget.get().strip()
-        
-        if path and os.path.exists(path):
-            try: os.startfile(path)
-            except Exception as e: messagebox.showerror("에러", f"파일을 열 수 없습니다.\n{e}", parent=self)
-        else:
-            messagebox.showwarning("경고", "파일 경로가 유효하지 않습니다.", parent=self)
-
-    def clear_entry(self, entry_widget, col_name):
-        path = self.full_paths.get(col_name)
-        if not path: path = entry_widget.get().strip()
-        if not path: return
-
-        is_managed = False
-        try:
-            abs_path = os.path.abspath(path)
-            abs_root = os.path.abspath(Config.DEFAULT_ATTACHMENT_ROOT)
-            if abs_path.startswith(abs_root): is_managed = True
-        except: pass
-
-        if is_managed:
-            if messagebox.askyesno("파일 삭제", f"정말 파일을 삭제하시겠습니까?\n(영구 삭제됨)", parent=self):
-                try:
-                    if os.path.exists(path): os.remove(path)
-                    if self.mgmt_no:
-                        def update_db_logic(dfs):
-                            df = dfs["data"]
-                            mask = df["관리번호"] == self.mgmt_no
-                            if mask.any(): df.loc[mask, col_name] = ""
-                            return True, ""
-                        self.dm._execute_transaction(update_db_logic)
-                except Exception as e:
-                    messagebox.showerror("오류", f"삭제 실패: {e}", parent=self)
-                    return
-                entry_widget.delete(0, "end")
-                self.lbl_drop.configure(text="파일을 여기에 드래그하세요", text_color=COLORS["text_dim"])
-                if col_name in self.full_paths: del self.full_paths[col_name]
-        else:
-            entry_widget.delete(0, "end")
-            self.lbl_drop.configure(text="파일을 여기에 드래그하세요", text_color=COLORS["text_dim"])
-            if col_name in self.full_paths: del self.full_paths[col_name]
 
     # ==========================================================================
     # 저장 및 삭제

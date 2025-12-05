@@ -101,18 +101,94 @@ class BasePopup(ctk.CTkToplevel):
                       fg_color=COLORS["bg_light"], hover_color=COLORS["bg_light_hover"], text_color=COLORS["text"])
         self.btn_cancel.pack(side="right", padx=5)
         
-        # Left Side: Delete (if exists)
-        if self.mgmt_no:
-             self.btn_delete = ctk.CTkButton(self.footer_frame, text="삭제", command=self.delete, width=80, height=40,
-                          fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"])
-             self.btn_delete.pack(side="left")
+    # ==========================================================================
+    # File & DnD Helpers
+    # ==========================================================================
+    def create_file_input_row(self, parent, label, col_name, placeholder="파일을 드래그하거나 열기 버튼을 클릭하세요"):
+        """
+        Creates a standardized file input row: Label -> Row[Entry, Open, Delete]
+        Returns: (entry_widget, btn_open, btn_delete)
+        """
+        if label:
+            ctk.CTkLabel(parent, text=label, font=FONTS["main"], text_color=COLORS["text_dim"]).pack(anchor="w", pady=(5, 0))
+        
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", pady=(2, 5))
+        
+        entry = ctk.CTkEntry(row, placeholder_text=placeholder, height=28)
+        entry.pack(side="left", fill="x", expand=True)
+        
+        # Open Button
+        btn_open = ctk.CTkButton(row, text="열기", width=50, height=28,
+                      command=lambda: self.open_file(entry, col_name),
+                      fg_color=COLORS["bg_light"], text_color=COLORS["text"])
+        btn_open.pack(side="left", padx=(5, 0))
+                      
+        # Delete Button
+        btn_delete = ctk.CTkButton(row, text="삭제", width=50, height=28,
+                      command=lambda: self.clear_entry(entry, col_name),
+                      fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"])
+        btn_delete.pack(side="left", padx=(5, 0))
+        
+        return entry, btn_open, btn_delete
 
+    def open_file(self, entry_widget, col_name):
+        path = self.full_paths.get(col_name) if hasattr(self, "full_paths") else None
+        if not path: path = entry_widget.get().strip()
+        
+        if path and os.path.exists(path):
+            try: os.startfile(path)
+            except Exception as e: messagebox.showerror("에러", f"파일을 열 수 없습니다.\n{e}", parent=self)
+        else:
+            messagebox.showwarning("경고", "파일 경로가 유효하지 않습니다.", parent=self)
+
+    def clear_entry(self, entry_widget, col_name):
+        path = self.full_paths.get(col_name) if hasattr(self, "full_paths") else None
+        if not path: path = entry_widget.get().strip()
+        if not path: return
+
+        is_managed = False
+        try:
+            abs_path = os.path.abspath(path)
+            # Config might need import, doing lazy import or assuming it's available if imported at top
+            from config import Config
+            abs_root = os.path.abspath(Config.DEFAULT_ATTACHMENT_ROOT)
+            if abs_path.startswith(abs_root): is_managed = True
+        except: pass
+
+        if is_managed:
+            if messagebox.askyesno("파일 삭제", f"정말 파일을 삭제하시겠습니까?\n(영구 삭제됨)", parent=self):
+                try:
+                    if os.path.exists(path): os.remove(path)
+                except Exception as e:
+                    messagebox.showerror("오류", f"삭제 실패: {e}", parent=self)
+                    return
+                entry_widget.delete(0, "end")
+                if hasattr(self, "full_paths") and col_name in self.full_paths: 
+                    del self.full_paths[col_name]
+        else:
+            entry_widget.delete(0, "end")
+            if hasattr(self, "full_paths") and col_name in self.full_paths: 
+                del self.full_paths[col_name]
+
+    # ==========================================================================
+    # Item List Helpers
+    # ==========================================================================
     def _add_item_row(self, item_data=None):
         """품목 테이블에 새로운 행을 추가합니다."""
+        # Note: self.scroll_items might not exist in BasePopup if _create_items_frame is not called 
+        # (subclasses currently implement _setup_items_panel instead).
+        # This methods assumes subclass has created self.scroll_items or it might fail.
+        # However, for backward compatibility or future BasePopup logic, we keep it but it might need adjustment 
+        # if subclasses don't use 'scroll_items' name. 
+        # Looking at Order/Quote/Delivery/Payment, they all seem to have scroll_items.
+        
+        if not hasattr(self, 'scroll_items'):
+             return None
+
         row_frame = ctk.CTkFrame(self.scroll_items, fg_color="transparent", height=35)
         row_frame.pack(fill="x", pady=2)
 
-        # 품목 행에 포함될 위젯들 (하위 클래스에서 이 구조를 사용할 수 있음)
         e_item = ctk.CTkEntry(row_frame, width=150)
         e_item.pack(side="left", padx=2)
         e_model = ctk.CTkEntry(row_frame, width=150)
@@ -139,8 +215,6 @@ class BasePopup(ctk.CTkToplevel):
             "qty": e_qty, "price": e_price, "supply": e_supply, "tax": e_tax, "total": e_total
         }
         self.item_rows.append(row_widgets)
-
-        # 이벤트 바인딩은 하위 클래스에서 구체적인 계산 로직과 함께 구현
         return row_widgets
 
     def _delete_item_row(self, frame):

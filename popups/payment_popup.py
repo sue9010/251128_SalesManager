@@ -101,16 +101,15 @@ class PaymentPopup(BasePopup):
         ctk.CTkLabel(parent, text="증빙 파일", font=FONTS["header"]).pack(anchor="w", padx=10, pady=(0, 5))
         
         # 외화입금증빙
-        self._create_file_input(parent, "외화입금증빙", "외화입금증빙경로")
+        self.entry_file_foreign, _, _ = self.create_file_input_row(parent, "외화입금증빙", "외화입금증빙경로")
         
         # 송금상세
-        self._create_file_input(parent, "송금상세(Remittance)", "송금상세경로")
+        self.entry_file_remit, _, _ = self.create_file_input_row(parent, "송금상세(Remittance)", "송금상세경로")
         
         # DnD Setup
         try:
             def hook_dnd():
-                if self.info_panel.winfo_exists():
-                    # 각 엔트리에 대해 DnD 훅 설정
+                if self.entry_file_foreign.winfo_exists():
                     windnd.hook_dropfiles(self.entry_file_foreign.winfo_id(), 
                                           lambda f: self.on_drop(f, "외화입금증빙경로"))
                     windnd.hook_dropfiles(self.entry_file_remit.winfo_id(), 
@@ -119,28 +118,6 @@ class PaymentPopup(BasePopup):
         except Exception as e:
             print(f"DnD Setup Error: {e}")
 
-    def _create_file_input(self, parent, label, col_name):
-        f = ctk.CTkFrame(parent, fg_color="transparent")
-        f.pack(fill="x", padx=10, pady=5)
-        
-        ctk.CTkLabel(f, text=label, font=FONTS["main"], text_color=COLORS["text_dim"]).pack(anchor="w")
-        
-        row = ctk.CTkFrame(f, fg_color="transparent")
-        row.pack(fill="x", pady=(2, 0))
-        
-        entry = ctk.CTkEntry(row, placeholder_text="파일을 드래그하세요", height=28)
-        entry.pack(side="left", fill="x", expand=True)
-        
-        if col_name == "외화입금증빙경로": self.entry_file_foreign = entry
-        else: self.entry_file_remit = entry
-        
-        ctk.CTkButton(row, text="열기", width=50, height=28,
-                      command=lambda: self.open_file(entry, col_name),
-                      fg_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="left", padx=(5, 0))
-                      
-        ctk.CTkButton(row, text="삭제", width=50, height=28,
-                      command=lambda: self.clear_entry(entry, col_name),
-                      fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left", padx=(5, 0))
 
     def _setup_items_panel(self, parent):
         # 타이틀
@@ -252,42 +229,6 @@ class PaymentPopup(BasePopup):
         self.entry_payment.delete(0, "end")
         self.entry_payment.insert(0, f"{unpaid_amount:.0f}")
 
-    # ==========================================================================
-    # 파일 및 DnD
-    # ==========================================================================
-    def on_drop(self, filenames, col_name):
-        if filenames:
-            try: file_path = filenames[0].decode('mbcs')
-            except: 
-                try: file_path = filenames[0].decode('utf-8', errors='ignore')
-                except: return
-            self.update_file_entry(col_name, file_path)
-
-    def update_file_entry(self, col_name, full_path):
-        if not full_path: return
-        self.full_paths[col_name] = full_path
-        
-        target_entry = None
-        if col_name == "외화입금증빙경로": target_entry = self.entry_file_foreign
-        elif col_name == "송금상세경로": target_entry = self.entry_file_remit
-        
-        if target_entry:
-            target_entry.delete(0, "end")
-            target_entry.insert(0, os.path.basename(full_path))
-
-    def open_file(self, entry, col_name):
-        path = self.full_paths.get(col_name)
-        if not path: path = entry.get().strip()
-        if path and os.path.exists(path):
-            try: os.startfile(path)
-            except: messagebox.showerror("오류", "파일을 열 수 없습니다.")
-        else:
-            messagebox.showwarning("경고", "유효한 파일 경로가 아닙니다.")
-
-    def clear_entry(self, entry, col_name):
-        entry.delete(0, "end")
-        if col_name in self.full_paths:
-            del self.full_paths[col_name]
 
     # ==========================================================================
     # 저장 로직
