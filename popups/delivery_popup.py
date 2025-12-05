@@ -12,6 +12,7 @@ import pandas as pd
 from config import Config
 from popups.base_popup import BasePopup
 from styles import COLORS, FONTS
+from export_manager import ExportManager # [신규] ExportManager import
 
 class DeliveryPopup(BasePopup):
     def __init__(self, parent, data_manager, refresh_callback, mgmt_nos):
@@ -26,7 +27,8 @@ class DeliveryPopup(BasePopup):
             return
 
         self.item_widgets_map = {}
-        self.full_paths = {} # 파일 경로 저장
+        self.full_paths = {} 
+        self.export_manager = ExportManager() # [신규] 인스턴스 생성
         
         super().__init__(parent, data_manager, refresh_callback, popup_title="납품", mgmt_no=self.mgmt_nos[0])
 
@@ -64,6 +66,10 @@ class DeliveryPopup(BasePopup):
         self.lbl_invoice_no = ctk.CTkLabel(self.top_frame, text="송장번호", font=FONTS["main_bold"])
         self.entry_invoice_no = ctk.CTkEntry(self.top_frame, width=200)
 
+        # [신규] PI 발행 버튼 추가
+        self.btn_export_pi = ctk.CTkButton(self.top_frame, text="PI 발행", command=self.export_pi, width=100, height=32,
+                                        fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], text_color="white", font=FONTS["main_bold"])
+
         # Grid 배치
         self.lbl_id.grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.entry_id.grid(row=0, column=1, padx=5, pady=5, sticky="w")
@@ -76,6 +82,9 @@ class DeliveryPopup(BasePopup):
 
         self.lbl_project.grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.entry_project.grid(row=1, column=1, columnspan=5, padx=5, pady=5, sticky="ew")
+        
+        # [신규] PI 버튼 배치 (프로젝트명 오른쪽)
+        self.btn_export_pi.grid(row=1, column=6, padx=5, pady=5, sticky="e")
 
         self.lbl_delivery_date.grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.entry_delivery_date.grid(row=2, column=1, padx=5, pady=5, sticky="w")
@@ -97,18 +106,16 @@ class DeliveryPopup(BasePopup):
         except:
             pass
 
-    # 하단 프레임 오버라이드
+    # ... (_create_bottom_frame 등 기존 코드 유지) ...
     def _create_bottom_frame(self):
-        super()._create_bottom_frame() # 비고란 생성 (Row 0)
+        super()._create_bottom_frame()
         
-        # 파일 업로드 위젯 생성 (Row 1)
         self.lbl_waybill_file = ctk.CTkLabel(self.input_grid, text="운송장:", font=FONTS["main"])
         self.lbl_waybill_file.grid(row=1, column=0, padx=5, pady=5, sticky="w")
         
         self.entry_waybill_file = ctk.CTkEntry(self.input_grid, width=300)
         self.entry_waybill_file.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
         
-        # 파일 버튼 프레임
         self.file_btn_frame = ctk.CTkFrame(self.input_grid, fg_color="transparent")
         self.file_btn_frame.grid(row=1, column=2, padx=5, pady=5, sticky="w")
         
@@ -121,20 +128,16 @@ class DeliveryPopup(BasePopup):
                       command=lambda: self.clear_entry(self.entry_waybill_file, col_name), 
                       fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left", padx=2)
 
-        # [Fix] OrderPopup과 동일한 방식의 Hook 설정
         try:
             def hook_dnd():
                 if self.entry_waybill_file.winfo_exists():
-                    # winfo_id()가 유효한 HWND를 반환하는지 확인
                     hwnd = self.entry_waybill_file.winfo_id()
                     windnd.hook_dropfiles(hwnd, self.on_drop)
             
-            # 윈도우가 완전히 그려진 후 훅을 걸도록 지연
             self.after(200, hook_dnd)
         except Exception as e:
             print(f"DnD Setup Error: {e}")
 
-    # 파일 관련 메서드들
     def update_file_entry(self, col_name, full_path):
         if not full_path: return
         self.full_paths[col_name] = full_path
@@ -145,7 +148,6 @@ class DeliveryPopup(BasePopup):
     def on_drop(self, filenames):
         if filenames:
             try:
-                # windnd는 bytes 리스트를 반환하므로 디코딩 필요
                 file_path = filenames[0].decode('mbcs')
             except:
                 try: file_path = filenames[0].decode('utf-8', errors='ignore')
@@ -197,7 +199,6 @@ class DeliveryPopup(BasePopup):
             self.after(100, self.destroy)
             return
 
-        # 시리얼 번호 매핑 데이터 가져오기
         serial_map = self.dm.get_serial_number_map()
 
         first = rows.iloc[0]
@@ -236,15 +237,12 @@ class DeliveryPopup(BasePopup):
         target_rows = rows[~rows["Status"].isin(["납품완료/입금대기", "완료", "취소", "보류"])]
         
         for index, row_data in target_rows.iterrows():
-            # 매핑 키 생성
             m_no = str(row_data.get("관리번호", "")).strip()
             model = str(row_data.get("모델명", "")).strip()
             desc = str(row_data.get("Description", "")).strip()
             
-            # 맵에서 시리얼 찾기
             serial = serial_map.get((m_no, model, desc), "-")
             
-            # 아이템 데이터에 시리얼 추가하여 전달
             item_data_with_serial = row_data.to_dict()
             item_data_with_serial["시리얼번호"] = serial
             
@@ -257,7 +255,6 @@ class DeliveryPopup(BasePopup):
         ctk.CTkLabel(row_frame, text=str(item_data.get("품목명", "")), width=200, anchor="w").pack(side="left", padx=2)
         ctk.CTkLabel(row_frame, text=str(item_data.get("모델명", "")), width=200, anchor="w").pack(side="left", padx=2)
         
-        # 시리얼 번호 표시
         serial = str(item_data.get("시리얼번호", "-"))
         ctk.CTkLabel(row_frame, text=serial, width=150, anchor="center", text_color=COLORS["primary"]).pack(side="left", padx=2)
         
@@ -279,6 +276,59 @@ class DeliveryPopup(BasePopup):
             "row_data": item_data
         }
 
+    # [신규] PI 발행 기능 구현
+    def export_pi(self):
+        client_name = self.entry_client.get()
+        if not client_name:
+            self.attributes("-topmost", False)
+            messagebox.showwarning("경고", "고객사를 선택해주세요.", parent=self)
+            self.attributes("-topmost", True)
+            return
+
+        client_row = self.dm.df_clients[self.dm.df_clients["업체명"] == client_name]
+        if client_row.empty:
+            self.attributes("-topmost", False)
+            messagebox.showerror("오류", "고객 정보를 찾을 수 없습니다.", parent=self)
+            self.attributes("-topmost", True)
+            return
+        
+        # 첫 번째 관리번호 데이터를 기준으로 정보 수집
+        main_mgmt_no = self.mgmt_nos[0]
+        rows = self.dm.df_data[self.dm.df_data["관리번호"] == main_mgmt_no]
+        if rows.empty: return
+        first = rows.iloc[0]
+
+        order_info = {
+            "client_name": client_name,
+            "mgmt_no": main_mgmt_no,
+            "date": first.get("수주일", ""), # 주문일 기준
+            "po_no": first.get("발주서번호", ""), # 발주서 번호
+        }
+        
+        # 품목 정보 수집 (현재 납품 팝업에 있는 항목이 아니라, DB에 있는 해당 관리번호의 모든 품목을 가져옵니다)
+        items = []
+        for _, row in rows.iterrows():
+            items.append({
+                "item": row.get("품목명", ""),
+                "model": row.get("모델명", ""),
+                "desc": row.get("Description", ""),
+                "qty": float(str(row.get("수량", 0)).replace(",", "") or 0),
+                "price": float(str(row.get("단가", 0)).replace(",", "") or 0),
+                "amount": float(str(row.get("공급가액", 0)).replace(",", "") or 0)
+            })
+
+        # ExportManager 호출
+        success, result = self.export_manager.export_pi_to_pdf(
+            client_row.iloc[0], order_info, items
+        )
+        
+        self.attributes("-topmost", False)
+        if success:
+            messagebox.showinfo("성공", f"PI가 생성되었습니다.\n{result}", parent=self)
+        else:
+            messagebox.showerror("실패", result, parent=self)
+        self.attributes("-topmost", True)
+
     def save(self):
         delivery_date = self.entry_delivery_date.get()
         invoice_no = self.entry_invoice_no.get()
@@ -288,7 +338,6 @@ class DeliveryPopup(BasePopup):
             messagebox.showwarning("경고", "출고일을 입력하세요.", parent=self)
             return
 
-        # 현재 사용자
         try: current_user = getpass.getuser()
         except: current_user = "Unknown"
 
@@ -326,7 +375,6 @@ class DeliveryPopup(BasePopup):
             messagebox.showinfo("정보", "처리할 품목(수량 > 0)이 없습니다.", parent=self)
             return
 
-        # 운송장 파일 처리 준비
         waybill_path = ""
         if self.entry_waybill_file:
             waybill_path = self.full_paths.get("운송장경로", "")
@@ -336,11 +384,9 @@ class DeliveryPopup(BasePopup):
         def update_logic(dfs):
             processed_items = []
             new_delivery_records = []
-            final_waybill_path = "" # 실제 저장된 경로
+            final_waybill_path = "" 
 
-            # 1. 파일 저장 로직 (한 번만 수행)
             client_name = self.entry_client.get().strip()
-            # 대표 관리번호 사용 (여러 개일 경우 첫 번째)
             main_mgmt_no = self.mgmt_nos[0]
             
             if waybill_path and os.path.exists(waybill_path):
@@ -351,11 +397,9 @@ class DeliveryPopup(BasePopup):
                 
                 ext = os.path.splitext(waybill_path)[1]
                 safe_client = "".join([c for c in client_name if c.isalnum() or c in (' ', '_')]).strip()
-                # 파일명: 운송장_업체명_관리번호.ext
                 new_filename = f"운송장_{safe_client}_{main_mgmt_no}{ext}"
                 target_path = os.path.join(target_dir, new_filename)
                 
-                # 경로가 다르면 복사
                 if os.path.abspath(waybill_path) != os.path.abspath(target_path):
                     try:
                         shutil.copy2(waybill_path, target_path)
@@ -390,7 +434,6 @@ class DeliveryPopup(BasePopup):
                 try: tax_rate = float(str(row_data.get("세율(%)", 0)).replace(",", "")) / 100
                 except: tax_rate = 0
 
-                # Delivery 시트에 내역 기록
                 new_delivery_records.append({
                     "일시": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "출고일": delivery_date,
@@ -404,27 +447,23 @@ class DeliveryPopup(BasePopup):
                     "비고": "일괄 납품 처리"
                 })
 
-                # Data 시트 업데이트
                 current_status = str(row_data.get("Status", ""))
                 if current_status == "납품대기/입금완료":
                     new_status = "완료"
                 else:
                     new_status = "납품완료/입금대기"
 
-                # Case 1: 전량 출고
                 if abs(deliver_qty - db_qty) < 0.000001:
                     dfs["data"].at[idx, "Status"] = new_status
                     dfs["data"].at[idx, "출고일"] = delivery_date
                     dfs["data"].at[idx, "송장번호"] = invoice_no
                     dfs["data"].at[idx, "운송방법"] = shipping_method
-                    dfs["data"].at[idx, "운송장경로"] = final_waybill_path # 경로 저장
+                    dfs["data"].at[idx, "운송장경로"] = final_waybill_path
                     
                     total_amt = float(str(row_data.get("합계금액", 0)).replace(",", ""))
                     dfs["data"].at[idx, "미수금액"] = total_amt
                     
-                # Case 2: 부분 출고 (행 분할)
                 else: 
-                    # 원본 행(잔여) 업데이트
                     remain_qty = db_qty - deliver_qty
                     remain_supply = remain_qty * price
                     remain_tax = remain_supply * tax_rate
@@ -434,7 +473,6 @@ class DeliveryPopup(BasePopup):
                     dfs["data"].at[idx, "합계금액"] = remain_supply + remain_tax
                     dfs["data"].at[idx, "미수금액"] = remain_supply + remain_tax
                     
-                    # 신규 행(출고된 부분) 추가
                     new_row = row_data.copy()
                     new_supply = deliver_qty * price
                     new_tax = new_supply * tax_rate
@@ -448,7 +486,7 @@ class DeliveryPopup(BasePopup):
                     new_row["출고일"] = delivery_date
                     new_row["송장번호"] = invoice_no
                     new_row["운송방법"] = shipping_method
-                    new_row["운송장경로"] = final_waybill_path # 경로 저장
+                    new_row["운송장경로"] = final_waybill_path 
                     
                     new_df = pd.DataFrame([new_row])
                     dfs["data"] = pd.concat([dfs["data"], new_df], ignore_index=True)
@@ -458,12 +496,10 @@ class DeliveryPopup(BasePopup):
             if not processed_items:
                 return False, "처리 가능한 항목이 없거나 데이터가 변경되었습니다."
 
-            # Delivery 시트에 저장
             if new_delivery_records:
                 delivery_df_new = pd.DataFrame(new_delivery_records)
                 dfs["delivery"] = pd.concat([dfs["delivery"], delivery_df_new], ignore_index=True)
 
-            # 로그 기록
             mgmt_str = self.mgmt_nos[0]
             if len(self.mgmt_nos) > 1:
                 mgmt_str += f" 외 {len(self.mgmt_nos)-1}건"
