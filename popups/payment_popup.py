@@ -1,11 +1,15 @@
+import os
+import shutil
 import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox
 import getpass
+import windnd
 
 import customtkinter as ctk
 import pandas as pd
 
+from config import Config
 from popups.base_popup import BasePopup
 from styles import COLORS, FONTS
 
@@ -21,6 +25,7 @@ class PaymentPopup(BasePopup):
             self.destroy()
             return
             
+        self.full_paths = {}
         super().__init__(parent, data_manager, refresh_callback, popup_title="수금", mgmt_no=self.mgmt_nos[0])
 
     def _create_widgets(self):
@@ -34,9 +39,10 @@ class PaymentPopup(BasePopup):
         except:
             pass
             
-        self.geometry("1100x800")
+        self.geometry("1100x850")
 
     def _create_payment_specific_widgets(self):
+        # ... (Summary frame - No changes) ...
         summary_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"], corner_radius=10)
         try:
             list_frame = self.scroll_items.master
@@ -54,6 +60,7 @@ class PaymentPopup(BasePopup):
         self.lbl_unpaid_amount = ctk.CTkLabel(summary_frame, text="0", font=FONTS["title"], text_color=COLORS["danger"])
         self.lbl_unpaid_amount.grid(row=3, column=1, padx=15, pady=(5, 15), sticky="e")
 
+        # Form Frame
         form_frame = ctk.CTkFrame(self, fg_color="transparent")
         try:
             btn_frame = self.winfo_children()[-1]
@@ -61,6 +68,7 @@ class PaymentPopup(BasePopup):
         except:
             form_frame.pack(fill="x", padx=20, pady=10)
         
+        # Row 0
         ctk.CTkLabel(form_frame, text="입금액", font=FONTS["main_bold"]).grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.entry_payment = ctk.CTkEntry(form_frame, width=200, font=FONTS["header"])
         self.entry_payment.grid(row=0, column=1, padx=5, pady=5, sticky="w")
@@ -69,6 +77,76 @@ class PaymentPopup(BasePopup):
         self.entry_pay_date = ctk.CTkEntry(form_frame, width=150)
         self.entry_pay_date.grid(row=0, column=3, padx=5, pady=5, sticky="w")
         self.entry_pay_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
+
+        # Row 1: Foreign Currency File
+        ctk.CTkLabel(form_frame, text="외국환 거래 계산서", font=FONTS["main"]).grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.entry_file_foreign = ctk.CTkEntry(form_frame, width=300)
+        self.entry_file_foreign.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
+        
+        btn_frame_1 = ctk.CTkFrame(form_frame, fg_color="transparent")
+        btn_frame_1.grid(row=1, column=3, padx=5, pady=5, sticky="w")
+        ctk.CTkButton(btn_frame_1, text="열기", width=50, command=lambda: self.open_file(self.entry_file_foreign, "외화입금증빙경로"), fg_color=COLORS["bg_medium"], text_color=COLORS["text"]).pack(side="left", padx=2)
+        ctk.CTkButton(btn_frame_1, text="삭제", width=50, command=lambda: self.clear_entry(self.entry_file_foreign, "외화입금증빙경로"), fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left", padx=2)
+
+        # Row 2: Remittance Detail File
+        ctk.CTkLabel(form_frame, text="Remittance Detail", font=FONTS["main"]).grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        self.entry_file_remit = ctk.CTkEntry(form_frame, width=300)
+        self.entry_file_remit.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
+
+        btn_frame_2 = ctk.CTkFrame(form_frame, fg_color="transparent")
+        btn_frame_2.grid(row=2, column=3, padx=5, pady=5, sticky="w")
+        ctk.CTkButton(btn_frame_2, text="열기", width=50, command=lambda: self.open_file(self.entry_file_remit, "송금상세경로"), fg_color=COLORS["bg_medium"], text_color=COLORS["text"]).pack(side="left", padx=2)
+        ctk.CTkButton(btn_frame_2, text="삭제", width=50, command=lambda: self.clear_entry(self.entry_file_remit, "송금상세경로"), fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left", padx=2)
+
+        # [Fix] DND Setup with windnd
+        try:
+            def hook_dnd():
+                if self.entry_file_foreign.winfo_exists():
+                    windnd.hook_dropfiles(self.entry_file_foreign.winfo_id(), 
+                                          lambda f: self.on_drop(f, "외화입금증빙경로"))
+                if self.entry_file_remit.winfo_exists():
+                    windnd.hook_dropfiles(self.entry_file_remit.winfo_id(), 
+                                          lambda f: self.on_drop(f, "송금상세경로"))
+            
+            self.after(200, hook_dnd)
+        except Exception as e:
+            print(f"DnD Error: {e}")
+
+    def on_drop(self, filenames, col_name):
+        if filenames:
+            try:
+                file_path = filenames[0].decode('mbcs')
+            except:
+                try: file_path = filenames[0].decode('utf-8', errors='ignore')
+                except: return
+            
+            self.update_file_entry(col_name, file_path)
+
+    def update_file_entry(self, col_name, full_path):
+        if not full_path: return
+        self.full_paths[col_name] = full_path
+        
+        target_entry = None
+        if col_name == "외화입금증빙경로": target_entry = self.entry_file_foreign
+        elif col_name == "송금상세경로": target_entry = self.entry_file_remit
+        
+        if target_entry:
+            target_entry.delete(0, "end")
+            target_entry.insert(0, os.path.basename(full_path))
+
+    def open_file(self, entry, col_name):
+        path = self.full_paths.get(col_name)
+        if not path: path = entry.get().strip()
+        if path and os.path.exists(path):
+            try: os.startfile(path)
+            except: messagebox.showerror("오류", "파일을 열 수 없습니다.")
+        else:
+            messagebox.showwarning("경고", "유효한 파일 경로가 아닙니다.")
+
+    def clear_entry(self, entry, col_name):
+        entry.delete(0, "end")
+        if col_name in self.full_paths:
+            del self.full_paths[col_name]
 
     def _add_summary_row(self, parent, label_text, value_text, row):
         ctk.CTkLabel(parent, text=label_text, font=FONTS["main"], text_color=COLORS["text_dim"]).grid(row=row, column=0, padx=15, pady=5, sticky="w")
@@ -192,6 +270,45 @@ class PaymentPopup(BasePopup):
         try: current_user = getpass.getuser()
         except: current_user = "Unknown"
 
+        # File Saving Logic
+        saved_paths = {}
+        target_dir = os.path.join(Config.DEFAULT_ATTACHMENT_ROOT, "입금")
+        
+        file_inputs = [
+            ("외화입금증빙경로", self.entry_file_foreign, "외화 입금"),
+            ("송금상세경로", self.entry_file_remit, "Remittance detail")
+        ]
+
+        for col, entry, prefix in file_inputs:
+            path = self.full_paths.get(col)
+            if not path: path = entry.get().strip()
+            
+            if path and os.path.exists(path):
+                if not os.path.exists(target_dir):
+                    try: os.makedirs(target_dir)
+                    except: pass
+                
+                try:
+                    client_name = self.dm.df_data.loc[self.dm.df_data["관리번호"] == self.mgmt_nos[0], "업체명"].values[0]
+                except: client_name = "Unknown"
+                
+                safe_client = "".join([c for c in str(client_name) if c.isalnum() or c in (' ', '_')]).strip()
+                ext = os.path.splitext(path)[1]
+                
+                new_name = f"{prefix}_{safe_client}_{self.mgmt_nos[0]}{ext}"
+                target_path = os.path.join(target_dir, new_name)
+                
+                if os.path.abspath(path) != os.path.abspath(target_path):
+                    try:
+                        shutil.copy2(path, target_path)
+                        saved_paths[col] = target_path
+                    except Exception as e:
+                        print(f"File copy error ({col}): {e}")
+                else:
+                    saved_paths[col] = path
+            else:
+                saved_paths[col] = "" 
+
         def update_logic(dfs):
             mask = dfs["data"]["관리번호"].isin(self.mgmt_nos)
             if not mask.any():
@@ -199,18 +316,17 @@ class PaymentPopup(BasePopup):
 
             indices = dfs["data"][mask].index
             
-            # [수정] 1. 강제 재계산 (동기화)
-            # 입금 로직 시작 전, 현재까지의 Payment 이력 기반으로 Data 시트의 잔액을 '정확하게' 맞춤
+            # 1. 강제 재계산
             for mgmt_no in self.mgmt_nos:
                 self.dm.recalc_payment_status(dfs, mgmt_no)
 
-            # 2. 배치 처리용 집계 딕셔너리
+            # 2. 배치 처리용 집계
             batch_summary = {}
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             remaining_payment = payment_amount
 
-            # 3. 미수금 차감 시뮬레이션 및 이력 누적
+            # 3. 미수금 차감 시뮬레이션
             for idx in indices:
                 if remaining_payment <= 0: break
                 
@@ -221,7 +337,6 @@ class PaymentPopup(BasePopup):
                 if mgmt_no not in batch_summary:
                     batch_summary[mgmt_no] = {'deposit': 0, 'fee': 0, 'currency': currency}
 
-                # 이제 미수금은 recalc 되었으므로 정확함
                 try: unpaid = float(dfs["data"].at[idx, "미수금액"])
                 except: unpaid = 0
                 
@@ -233,8 +348,6 @@ class PaymentPopup(BasePopup):
                         actual_pay = unpaid
                     else:
                         diff = unpaid - remaining_payment
-                        # threshold는 잔액이 '아주 조금' 남았을 때 털어버리기 위함
-                        # 남은 돈이 threshold 이하일 때만 물어봐야 함
                         if diff <= threshold:
                             item_name = str(dfs["data"].at[idx, "품목명"])
                             if messagebox.askyesno("수수료 처리 확인", 
@@ -247,18 +360,17 @@ class PaymentPopup(BasePopup):
                         else:
                             actual_pay = remaining_payment
 
-                    # 집계에만 반영 (Data 시트 직접 수정 X -> 루프 후 recalc에서 일괄 처리)
                     batch_summary[mgmt_no]['deposit'] += actual_pay
                     batch_summary[mgmt_no]['fee'] += fee_pay
                     
                     remaining_payment -= actual_pay
 
-            # 4. Payment 시트에 이력 기록 (1건으로 통합)
+            # 4. Payment 시트에 이력 기록
             new_payment_records = []
             
             for mgmt_no, summary in batch_summary.items():
                 if summary['deposit'] > 0:
-                    new_payment_records.append({
+                    record = {
                         "일시": now_str,
                         "관리번호": mgmt_no,
                         "구분": "입금",
@@ -266,7 +378,13 @@ class PaymentPopup(BasePopup):
                         "통화": summary['currency'],
                         "작업자": current_user,
                         "비고": f"일괄 입금 ({payment_date})"
-                    })
+                    }
+                    if "외화입금증빙경로" in saved_paths:
+                        record["외화입금증빙경로"] = saved_paths["외화입금증빙경로"]
+                    if "송금상세경로" in saved_paths:
+                        record["송금상세경로"] = saved_paths["송금상세경로"]
+                        
+                    new_payment_records.append(record)
                 
                 if summary['fee'] > 0:
                     new_payment_records.append({
@@ -283,14 +401,18 @@ class PaymentPopup(BasePopup):
                 payment_df_new = pd.DataFrame(new_payment_records)
                 dfs["payment"] = pd.concat([dfs["payment"], payment_df_new], ignore_index=True)
 
-            # 5. 최종 재계산 (방금 추가한 이력 포함하여 Data 시트 갱신)
+            # 5. 최종 재계산
             for mgmt_no in self.mgmt_nos:
                 self.dm.recalc_payment_status(dfs, mgmt_no)
 
             mgmt_str = self.mgmt_nos[0]
             if len(self.mgmt_nos) > 1: mgmt_str += f" 외 {len(self.mgmt_nos)-1}건"
             
-            log_msg = f"번호 [{mgmt_str}] / 입금액 [{payment_amount:,.0f}] 처리 (재계산 완료)"
+            file_log = ""
+            if saved_paths.get("외화입금증빙경로"): file_log += " / 외화증빙"
+            if saved_paths.get("송금상세경로"): file_log += " / 송금상세"
+            
+            log_msg = f"번호 [{mgmt_str}] / 입금액 [{payment_amount:,.0f}] 처리{file_log} (재계산 완료)"
             new_log = self.dm._create_log_entry("수금 처리", log_msg)
             dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
 

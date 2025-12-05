@@ -4,11 +4,7 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox
 import getpass
-# [수정] windnd 제거 및 tkinterdnd2 임포트 (설치 필요: pip install tkinterdnd2)
-try:
-    from tkinterdnd2 import DND_FILES
-except ImportError:
-    DND_FILES = None
+import windnd
 
 import customtkinter as ctk
 import pandas as pd
@@ -37,13 +33,12 @@ class DeliveryPopup(BasePopup):
     def _create_widgets(self):
         super()._create_widgets()
         self._create_delivery_specific_widgets()
-        self.geometry("950x800")
+        self.geometry("900x800")
 
     def _create_items_frame(self):
         list_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"])
         list_frame.pack(fill="both", expand=True, padx=20, pady=5)
 
-        # 헤더에 '시리얼 번호' 추가
         headers = ["품명", "모델명", "시리얼 번호", "잔여 수량", "출고 수량"]
         widths = [200, 200, 150, 100, 100]
         
@@ -102,7 +97,7 @@ class DeliveryPopup(BasePopup):
         except:
             pass
 
-    # 하단 프레임 오버라이드 (비고 아래에 파일 업로드 배치)
+    # 하단 프레임 오버라이드
     def _create_bottom_frame(self):
         super()._create_bottom_frame() # 비고란 생성 (Row 0)
         
@@ -126,11 +121,16 @@ class DeliveryPopup(BasePopup):
                       command=lambda: self.clear_entry(self.entry_waybill_file, col_name), 
                       fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left", padx=2)
 
-        # tkinterdnd2 드래그 앤 드롭 설정
+        # [Fix] OrderPopup과 동일한 방식의 Hook 설정
         try:
-            if DND_FILES:
-                self.entry_waybill_file._entry.drop_target_register(DND_FILES)
-                self.entry_waybill_file._entry.dnd_bind('<<Drop>>', self.on_drop)
+            def hook_dnd():
+                if self.entry_waybill_file.winfo_exists():
+                    # winfo_id()가 유효한 HWND를 반환하는지 확인
+                    hwnd = self.entry_waybill_file.winfo_id()
+                    windnd.hook_dropfiles(hwnd, self.on_drop)
+            
+            # 윈도우가 완전히 그려진 후 훅을 걸도록 지연
+            self.after(200, hook_dnd)
         except Exception as e:
             print(f"DnD Setup Error: {e}")
 
@@ -142,12 +142,16 @@ class DeliveryPopup(BasePopup):
             self.entry_waybill_file.delete(0, "end")
             self.entry_waybill_file.insert(0, os.path.basename(full_path))
 
-    def on_drop(self, event):
-        if event.data:
-            file_paths = self.master.tk.splitlist(event.data)
-            if file_paths:
-                file_path = file_paths[0]
-                self.update_file_entry("운송장경로", file_path)
+    def on_drop(self, filenames):
+        if filenames:
+            try:
+                # windnd는 bytes 리스트를 반환하므로 디코딩 필요
+                file_path = filenames[0].decode('mbcs')
+            except:
+                try: file_path = filenames[0].decode('utf-8', errors='ignore')
+                except: return
+            
+            self.update_file_entry("운송장경로", file_path)
 
     def open_file(self, entry_widget, col_name):
         path = self.full_paths.get(col_name)
@@ -232,7 +236,7 @@ class DeliveryPopup(BasePopup):
         target_rows = rows[~rows["Status"].isin(["납품완료/입금대기", "완료", "취소", "보류"])]
         
         for index, row_data in target_rows.iterrows():
-            # 매핑 키 생성 (관리번호, 모델명, Description)
+            # 매핑 키 생성
             m_no = str(row_data.get("관리번호", "")).strip()
             model = str(row_data.get("모델명", "")).strip()
             desc = str(row_data.get("Description", "")).strip()
@@ -309,14 +313,13 @@ class DeliveryPopup(BasePopup):
                 messagebox.showerror("오류", f"출고 수량이 잔여 수량을 초과했습니다.\n(품목: {item_widget['row_data'].get('품목명','')})", parent=self)
                 return
 
-            # [수정] 시리얼 번호도 함께 요청에 담기
             serial_no = str(item_widget["row_data"].get("시리얼번호", "-"))
             
             update_requests.append({
                 "idx": index,
                 "deliver_qty": deliver_qty,
                 "current_qty": item_widget["current_qty"],
-                "serial_no": serial_no # 시리얼 추가
+                "serial_no": serial_no
             })
         
         if not update_requests:
@@ -362,13 +365,12 @@ class DeliveryPopup(BasePopup):
                 else:
                     final_waybill_path = waybill_path
             elif waybill_path:
-                 # 파일이 존재하지 않지만 텍스트가 있는 경우 (삭제된 경우 등)
                  final_waybill_path = ""
 
             for req in update_requests:
                 idx = req["idx"]
                 deliver_qty = req["deliver_qty"]
-                serial_no = req["serial_no"] # [NEW] 시리얼 번호
+                serial_no = req["serial_no"]
 
                 if idx not in dfs["data"].index: 
                     continue 
@@ -394,7 +396,7 @@ class DeliveryPopup(BasePopup):
                     "출고일": delivery_date,
                     "관리번호": row_data.get("관리번호", ""),
                     "품목명": row_data.get("품목명", ""),
-                    "시리얼번호": serial_no, # [NEW] 시리얼 번호 저장
+                    "시리얼번호": serial_no,
                     "출고수량": deliver_qty,
                     "송장번호": invoice_no,
                     "운송방법": shipping_method,
@@ -422,7 +424,7 @@ class DeliveryPopup(BasePopup):
                     
                 # Case 2: 부분 출고 (행 분할)
                 else: 
-                    # 원본 행(잔여) 업데이트 - 운송장 경로는 부분 출고된 쪽에만 저장
+                    # 원본 행(잔여) 업데이트
                     remain_qty = db_qty - deliver_qty
                     remain_supply = remain_qty * price
                     remain_tax = remain_supply * tax_rate
