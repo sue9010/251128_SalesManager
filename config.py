@@ -16,7 +16,7 @@ class Config:
             pass
 
     CONFIG_FILENAME = os.path.join(APP_DIR, "config.json")
-    APP_VERSION = "1.2.0" # 버전 업데이트
+    APP_VERSION = "1.2.1" # 버전 업데이트
     DEV_PASSWORD = "admin" 
 
     # ---------------------------------------------------------
@@ -31,7 +31,7 @@ class Config:
     # 출고요청서 양식 파일 경로 (폼)
     ORDER_REQUEST_FORM_PATH = r"\\cox_biz\business\SalesManager\forms\Production_request.xlsm"
     
-    # [NEW] 출고요청서 저장 폴더 기본값
+    # 출고요청서 저장 폴더 기본값
     DEFAULT_ORDER_REQUEST_DIR = r"\\cox_biz\business\SalesManager\출고요청서"
     
     if not os.path.exists(DEFAULT_ATTACHMENT_ROOT):
@@ -46,12 +46,12 @@ class Config:
     SHEET_CLIENTS = "Customers"
     SHEET_DATA = "Data"
     SHEET_PAYMENT = "Payment"
-    SHEET_DELIVERY = "Delivery" # [신규] 납품 이력 시트
+    SHEET_DELIVERY = "Delivery"
     SHEET_LOG = "Log"
     SHEET_MEMO = "Memos"
     SHEET_MEMO_LOG = "Memo Log"
 
-    # [NEW] 생산 요청 파일 시트 설정 (참고용)
+    # 생산 요청 파일 시트 설정 (참고용)
     PROD_SHEET_DATA = "Data"
     PROD_SHEET_LOG = "Log"
     PROD_SHEET_MEMO = "Memos"
@@ -78,17 +78,17 @@ class Config:
         "세금계산서발행일", "계산서번호", "수출신고번호", "송장번호", "운송방법",
         
         # [관리 정보]
-        "Status", "견적서경로", "발주서경로", "운송장경로", "주문요청사항", "비고"
+        # [수정] "발주서번호" 추가
+        "Status", "견적서경로", "발주서경로", "발주서번호", "운송장경로", "주문요청사항", "비고"
     ]
 
     # 3. 입금 내역 시트
-    # [수정] 파일 경로 컬럼 추가
     PAYMENT_COLUMNS = [
         "일시", "관리번호", "구분", "입금액", "통화", "작업자", "비고", 
-        "외화입금증빙경로", "송금상세경로" # [NEW]
+        "외화입금증빙경로", "송금상세경로"
     ]
 
-    # [신규] 4. 납품(출고) 내역 시트
+    # 4. 납품(출고) 내역 시트
     DELIVERY_COLUMNS = [
         "일시",         # 처리 일시
         "출고일",       # 실제 출고 날짜
@@ -113,4 +113,4 @@ class Config:
         "수량", "합계금액", "출고예정일", "Status"
     ]
     
-    SEARCH_TARGET_COLS = ["관리번호", "업체명", "프로젝트명", "모델명", "품목명", "계산서번호", "수출신고번호", "송장번호"]
+    SEARCH_TARGET_COLS = ["관리번호", "업체명", "프로젝트명", "모델명", "품목명", "계산서번호", "수출신고번호", "송장번호", "발주서번호"]

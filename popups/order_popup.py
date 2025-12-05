@@ -14,7 +14,6 @@ from config import Config
 from export_manager import ExportManager
 
 class OrderPopup(BasePopup):
-    # [수정] copy_mode 매개변수 추가
     def __init__(self, parent, data_manager, refresh_callback, mgmt_no=None, copy_mode=False):
         self.full_paths = {}
         self.export_manager = ExportManager()
@@ -22,7 +21,6 @@ class OrderPopup(BasePopup):
         self.copy_mode = copy_mode
         self.copy_src_no = mgmt_no if copy_mode else None
         
-        # 복사 모드일 경우 부모 클래스에는 mgmt_no를 None(신규)으로 전달하여 새 번호를 생성하게 함
         real_mgmt_no = None if copy_mode else mgmt_no
         
         super().__init__(parent, data_manager, refresh_callback, popup_title="주문", mgmt_no=real_mgmt_no)
@@ -32,8 +30,9 @@ class OrderPopup(BasePopup):
             self.combo_status.set("주문")
             if hasattr(self, 'btn_export_order'):
                 self.btn_export_order.grid_remove()
+            if hasattr(self, 'btn_export_pi'):
+                self.btn_export_pi.grid_remove()
                 
-        # [신규] 복사 모드라면 원본 데이터 로드
         if self.copy_mode and self.copy_src_no:
             self._load_copied_data()
     
@@ -55,6 +54,9 @@ class OrderPopup(BasePopup):
         self.combo_type = ctk.CTkComboBox(self.top_frame, values=["내수", "수출"], width=200, font=FONTS["main"], command=self.on_type_change)
         self.combo_type.set("내수")
 
+        self.lbl_po_no = ctk.CTkLabel(self.top_frame, text="발주서 번호", font=FONTS["main_bold"])
+        self.entry_po_no = ctk.CTkEntry(self.top_frame, width=200, font=FONTS["main"])
+
         self.lbl_currency = ctk.CTkLabel(self.top_frame, text="통화", font=FONTS["main_bold"])
         self.combo_currency = ctk.CTkComboBox(self.top_frame, values=["KRW", "USD", "EUR", "CNY", "JPY"], width=200, font=FONTS["main"], command=self.on_currency_change)
         self.combo_currency.set("KRW")
@@ -64,7 +66,10 @@ class OrderPopup(BasePopup):
         self.entry_tax_rate.insert(0, "10")
         self.entry_tax_rate.bind("<KeyRelease>", lambda e: self._calculate_totals())
 
-        self.btn_export_order = ctk.CTkButton(self.top_frame, text="출고요청서", command=self.export_order_request, width=120, height=40,
+        self.btn_export_pi = ctk.CTkButton(self.top_frame, text="PI 발행", command=self.export_pi, width=100, height=40,
+                                        fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], text_color="white", font=FONTS["main_bold"])
+
+        self.btn_export_order = ctk.CTkButton(self.top_frame, text="출고요청서", command=self.export_order_request, width=100, height=40,
                                         fg_color=COLORS["success"], hover_color="#26A65B", text_color="white", font=FONTS["main_bold"])
 
     def _layout_top_frame(self):
@@ -79,15 +84,20 @@ class OrderPopup(BasePopup):
 
         self.lbl_client.grid(row=1, column=0, padx=5, pady=10, sticky="w")
         self.entry_client.grid(row=1, column=1, padx=5, pady=10, sticky="w")
-        self.lbl_currency.grid(row=1, column=2, padx=5, pady=10, sticky="w")
-        self.combo_currency.grid(row=1, column=3, padx=5, pady=10, sticky="w")
-        self.lbl_tax_rate.grid(row=1, column=4, padx=5, pady=10, sticky="w")
-        self.entry_tax_rate.grid(row=1, column=5, padx=5, pady=10, sticky="w")
+        
+        self.lbl_po_no.grid(row=1, column=2, padx=5, pady=10, sticky="w")
+        self.entry_po_no.grid(row=1, column=3, padx=5, pady=10, sticky="w")
+        
+        self.lbl_currency.grid(row=1, column=4, padx=5, pady=10, sticky="w")
+        self.combo_currency.grid(row=1, column=5, padx=5, pady=10, sticky="w")
+        self.lbl_tax_rate.grid(row=1, column=6, padx=5, pady=10, sticky="w")
+        self.entry_tax_rate.grid(row=1, column=7, padx=5, pady=10, sticky="w")
 
         self.lbl_project.grid(row=2, column=0, padx=5, sticky="w")
         self.entry_project.grid(row=2, column=1, columnspan=5, padx=5, sticky="ew")
         
-        self.btn_export_order.grid(row=2, column=6, columnspan=2, padx=5, sticky="e")
+        self.btn_export_pi.grid(row=2, column=6, padx=(5, 2), sticky="e")
+        self.btn_export_order.grid(row=2, column=7, padx=(2, 5), sticky="e")
 
     def _create_bottom_frame(self):
         self.input_grid = ctk.CTkFrame(self, fg_color="transparent")
@@ -336,6 +346,11 @@ class OrderPopup(BasePopup):
         
         self.combo_currency.set(str(first.get("통화", "KRW")))
         
+        # 발주서 번호 로드
+        po_no = str(first.get("발주서번호", "")).replace("nan", "")
+        self.entry_po_no.delete(0, "end")
+        self.entry_po_no.insert(0, po_no)
+        
         saved_tax = first.get("세율(%)", "")
         if saved_tax != "" and saved_tax != "-": tax_rate = str(saved_tax)
         else:
@@ -359,13 +374,14 @@ class OrderPopup(BasePopup):
         
         if current_status in ["주문", "생산중"]:
             if hasattr(self, 'btn_export_order'): self.btn_export_order.grid()
+            if hasattr(self, 'btn_export_pi'): self.btn_export_pi.grid()
         else:
             if hasattr(self, 'btn_export_order'): self.btn_export_order.grid_remove()
+            if hasattr(self, 'btn_export_pi'): self.btn_export_pi.grid_remove()
         
         self._on_client_select(client_name)
         for _, row in rows.iterrows(): self._add_item_row(row)
 
-    # [신규] 복사된 데이터 로드 (주문)
     def _load_copied_data(self):
         df = self.dm.df_data
         rows = df[df["관리번호"] == self.copy_src_no]
@@ -373,14 +389,16 @@ class OrderPopup(BasePopup):
         
         first = rows.iloc[0]
         
-        # 날짜와 상태는 __init__에서 신규로 설정됨 (오늘 날짜, 주문 상태)
-        
         self.combo_type.set(str(first.get("구분", "내수")))
         
         client_name = str(first.get("업체명", ""))
         self.entry_client.delete(0, "end")
         self.entry_client.insert(0, client_name)
         
+        po_no = str(first.get("발주서번호", "")).replace("nan", "")
+        self.entry_po_no.delete(0, "end")
+        self.entry_po_no.insert(0, po_no)
+
         self.combo_currency.set(str(first.get("통화", "KRW")))
         
         saved_tax = first.get("세율(%)", "")
@@ -396,8 +414,6 @@ class OrderPopup(BasePopup):
         
         self.entry_req.insert(0, str(first.get("주문요청사항", "")).replace("nan", ""))
         self.entry_note.insert(0, str(first.get("비고", "")))
-        
-        # 파일은 복사하지 않음 (발주서 등은 고유하므로)
         
         self._on_client_select(client_name)
         for _, row in rows.iterrows(): self._add_item_row(row)
@@ -439,7 +455,8 @@ class OrderPopup(BasePopup):
             "비고": self.entry_note.get(),
             "Status": self.combo_status.get(),
             "발주서경로": order_file_path,
-            "수주일": self.entry_date.get()
+            "수주일": self.entry_date.get(),
+            "발주서번호": self.entry_po_no.get().strip()
         }
         
         for item in self.item_rows:
@@ -456,7 +473,6 @@ class OrderPopup(BasePopup):
             new_rows.append(row_data)
 
         def update_logic(dfs):
-            # 발주서 파일 처리
             order_path = common_data.get("발주서경로", "")
             if order_path and os.path.exists(order_path):
                 target_dir = os.path.join(Config.DEFAULT_ATTACHMENT_ROOT, "발주서")
@@ -477,13 +493,11 @@ class OrderPopup(BasePopup):
                     except Exception as e:
                         return False, f"파일 복사 실패: {e}"
 
-            # [수정] 복사 모드일 때는 신규 등록이므로 기존 데이터 삭제 로직 건너뜀
             if self.mgmt_no:
                 mask = dfs["data"]["관리번호"] == self.mgmt_no
                 existing_rows = dfs["data"][mask]
                 if not existing_rows.empty:
                     first_exist = existing_rows.iloc[0]
-                    # 주문 수정 시 기존 일정/증빙 정보 보존
                     preserve_cols = ["견적일", "출고예정일", "출고일", "입금완료일", 
                                      "세금계산서발행일", "계산서번호", "수출신고번호", "송장번호", "운송방법"]
                     for row in new_rows:
@@ -495,7 +509,6 @@ class OrderPopup(BasePopup):
             new_df = pd.DataFrame(new_rows)
             dfs["data"] = pd.concat([dfs["data"], new_df], ignore_index=True)
             
-            # 로그 메시지 구분
             if self.copy_mode:
                 action = "복사 등록"
                 log_msg = f"주문 복사: [{self.copy_src_no}] -> [{mgmt_no}] / 업체 [{client}]"
@@ -576,6 +589,54 @@ class OrderPopup(BasePopup):
         self.attributes("-topmost", False)
         if success:
             messagebox.showinfo("성공", f"출고요청서가 생성되었습니다.\n{result}", parent=self)
+        else:
+            messagebox.showerror("실패", result, parent=self)
+        self.attributes("-topmost", True)
+
+    def export_pi(self):
+        # [신규] PI 발행 로직 (ExportManager 연동)
+        client_name = self.entry_client.get()
+        if not client_name:
+            self.attributes("-topmost", False)
+            messagebox.showwarning("경고", "고객사를 선택해주세요.", parent=self)
+            self.attributes("-topmost", True)
+            return
+
+        client_row = self.dm.df_clients[self.dm.df_clients["업체명"] == client_name]
+        if client_row.empty:
+            self.attributes("-topmost", False)
+            messagebox.showerror("오류", "고객 정보를 찾을 수 없습니다.", parent=self)
+            self.attributes("-topmost", True)
+            return
+        
+        # PI에 필요한 주문 정보 수집
+        order_info = {
+            "client_name": client_name,
+            "mgmt_no": self.entry_id.get(),
+            "date": self.entry_date.get(),
+            "po_no": self.entry_po_no.get(), # 발주서 번호 포함
+        }
+        
+        # 품목 정보 수집 (단가, 금액 포함)
+        items = []
+        for row in self.item_rows:
+            items.append({
+                "item": row["item"].get(),
+                "model": row["model"].get(),
+                "desc": row["desc"].get(),
+                "qty": float(row["qty"].get().replace(",", "") or 0),
+                "price": float(row["price"].get().replace(",", "") or 0),
+                "amount": float(row["supply"].get().replace(",", "") or 0)
+            })
+
+        # ExportManager 호출
+        success, result = self.export_manager.export_pi_to_pdf(
+            client_row.iloc[0], order_info, items
+        )
+        
+        self.attributes("-topmost", False)
+        if success:
+            messagebox.showinfo("성공", f"PI가 생성되었습니다.\n{result}", parent=self)
         else:
             messagebox.showerror("실패", result, parent=self)
         self.attributes("-topmost", True)
