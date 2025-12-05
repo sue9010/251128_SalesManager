@@ -4,7 +4,11 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox
 import getpass
-import windnd
+# [수정] windnd 제거 및 tkinterdnd2 임포트 (설치 필요: pip install tkinterdnd2)
+try:
+    from tkinterdnd2 import DND_FILES
+except ImportError:
+    DND_FILES = None
 
 import customtkinter as ctk
 import pandas as pd
@@ -33,14 +37,15 @@ class DeliveryPopup(BasePopup):
     def _create_widgets(self):
         super()._create_widgets()
         self._create_delivery_specific_widgets()
-        self.geometry("900x800")
+        self.geometry("950x800")
 
     def _create_items_frame(self):
         list_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"])
         list_frame.pack(fill="both", expand=True, padx=20, pady=5)
 
-        headers = ["품명", "모델명", "잔여 수량", "출고 수량"]
-        widths = [250, 300, 100, 100]
+        # 헤더에 '시리얼 번호' 추가
+        headers = ["품명", "모델명", "시리얼 번호", "잔여 수량", "출고 수량"]
+        widths = [200, 200, 150, 100, 100]
         
         header_frame = ctk.CTkFrame(list_frame, height=30, fg_color=COLORS["bg_dark"])
         header_frame.pack(fill="x")
@@ -53,7 +58,7 @@ class DeliveryPopup(BasePopup):
         self.scroll_items.pack(fill="both", expand=True)
 
     def _create_delivery_specific_widgets(self):
-        # 상단 입력 필드들 (파일 업로드 부분 제거됨)
+        # 상단 입력 필드들
         self.lbl_delivery_date = ctk.CTkLabel(self.top_frame, text="출고일", font=FONTS["main_bold"])
         self.entry_delivery_date = ctk.CTkEntry(self.top_frame, width=150)
         self.entry_delivery_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
@@ -97,7 +102,7 @@ class DeliveryPopup(BasePopup):
         except:
             pass
 
-    # [신규] 하단 프레임 오버라이드 (비고 아래에 파일 업로드 배치)
+    # 하단 프레임 오버라이드 (비고 아래에 파일 업로드 배치)
     def _create_bottom_frame(self):
         super()._create_bottom_frame() # 비고란 생성 (Row 0)
         
@@ -121,14 +126,13 @@ class DeliveryPopup(BasePopup):
                       command=lambda: self.clear_entry(self.entry_waybill_file, col_name), 
                       fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left", padx=2)
 
-        # 드래그 앤 드롭 설정
+        # tkinterdnd2 드래그 앤 드롭 설정
         try:
-            def hook_dnd():
-                if self.entry_waybill_file.winfo_exists():
-                    windnd.hook_dropfiles(self.entry_waybill_file.winfo_id(), self.on_drop)
-            self.after(100, hook_dnd)
+            if DND_FILES:
+                self.entry_waybill_file._entry.drop_target_register(DND_FILES)
+                self.entry_waybill_file._entry.dnd_bind('<<Drop>>', self.on_drop)
         except Exception as e:
-            print(f"DnD Error: {e}")
+            print(f"DnD Setup Error: {e}")
 
     # 파일 관련 메서드들
     def update_file_entry(self, col_name, full_path):
@@ -138,11 +142,12 @@ class DeliveryPopup(BasePopup):
             self.entry_waybill_file.delete(0, "end")
             self.entry_waybill_file.insert(0, os.path.basename(full_path))
 
-    def on_drop(self, filenames):
-        if filenames:
-            try: file_path = filenames[0].decode('mbcs')
-            except: file_path = filenames[0].decode('utf-8', errors='ignore')
-            self.update_file_entry("운송장경로", file_path)
+    def on_drop(self, event):
+        if event.data:
+            file_paths = self.master.tk.splitlist(event.data)
+            if file_paths:
+                file_path = file_paths[0]
+                self.update_file_entry("운송장경로", file_path)
 
     def open_file(self, entry_widget, col_name):
         path = self.full_paths.get(col_name)
@@ -188,6 +193,9 @@ class DeliveryPopup(BasePopup):
             self.after(100, self.destroy)
             return
 
+        # 시리얼 번호 매핑 데이터 가져오기
+        serial_map = self.dm.get_serial_number_map()
+
         first = rows.iloc[0]
 
         widgets_to_load = [
@@ -217,7 +225,6 @@ class DeliveryPopup(BasePopup):
             widget.insert(0, val)
             widget.configure(state="readonly")
         
-        # 기존 파일 경로 로드
         if self.entry_waybill_file:
             path = str(first.get("운송장경로", "")).replace("nan", "")
             if path: self.update_file_entry("운송장경로", path)
@@ -225,14 +232,30 @@ class DeliveryPopup(BasePopup):
         target_rows = rows[~rows["Status"].isin(["납품완료/입금대기", "완료", "취소", "보류"])]
         
         for index, row_data in target_rows.iterrows():
-            self._add_delivery_item_row(index, row_data)
+            # 매핑 키 생성 (관리번호, 모델명, Description)
+            m_no = str(row_data.get("관리번호", "")).strip()
+            model = str(row_data.get("모델명", "")).strip()
+            desc = str(row_data.get("Description", "")).strip()
+            
+            # 맵에서 시리얼 찾기
+            serial = serial_map.get((m_no, model, desc), "-")
+            
+            # 아이템 데이터에 시리얼 추가하여 전달
+            item_data_with_serial = row_data.to_dict()
+            item_data_with_serial["시리얼번호"] = serial
+            
+            self._add_delivery_item_row(index, item_data_with_serial)
 
     def _add_delivery_item_row(self, row_index, item_data):
         row_frame = ctk.CTkFrame(self.scroll_items, fg_color="transparent", height=35)
         row_frame.pack(fill="x", pady=2)
 
-        ctk.CTkLabel(row_frame, text=str(item_data.get("품목명", "")), width=250, anchor="w").pack(side="left", padx=2)
-        ctk.CTkLabel(row_frame, text=str(item_data.get("모델명", "")), width=300, anchor="w").pack(side="left", padx=2)
+        ctk.CTkLabel(row_frame, text=str(item_data.get("품목명", "")), width=200, anchor="w").pack(side="left", padx=2)
+        ctk.CTkLabel(row_frame, text=str(item_data.get("모델명", "")), width=200, anchor="w").pack(side="left", padx=2)
+        
+        # 시리얼 번호 표시
+        serial = str(item_data.get("시리얼번호", "-"))
+        ctk.CTkLabel(row_frame, text=serial, width=150, anchor="center", text_color=COLORS["primary"]).pack(side="left", padx=2)
         
         try:
             raw_qty = str(item_data.get("수량", "0")).replace(",", "")
@@ -286,10 +309,14 @@ class DeliveryPopup(BasePopup):
                 messagebox.showerror("오류", f"출고 수량이 잔여 수량을 초과했습니다.\n(품목: {item_widget['row_data'].get('품목명','')})", parent=self)
                 return
 
+            # [수정] 시리얼 번호도 함께 요청에 담기
+            serial_no = str(item_widget["row_data"].get("시리얼번호", "-"))
+            
             update_requests.append({
                 "idx": index,
                 "deliver_qty": deliver_qty,
-                "current_qty": item_widget["current_qty"]
+                "current_qty": item_widget["current_qty"],
+                "serial_no": serial_no # 시리얼 추가
             })
         
         if not update_requests:
@@ -341,6 +368,7 @@ class DeliveryPopup(BasePopup):
             for req in update_requests:
                 idx = req["idx"]
                 deliver_qty = req["deliver_qty"]
+                serial_no = req["serial_no"] # [NEW] 시리얼 번호
 
                 if idx not in dfs["data"].index: 
                     continue 
@@ -366,6 +394,7 @@ class DeliveryPopup(BasePopup):
                     "출고일": delivery_date,
                     "관리번호": row_data.get("관리번호", ""),
                     "품목명": row_data.get("품목명", ""),
+                    "시리얼번호": serial_no, # [NEW] 시리얼 번호 저장
                     "출고수량": deliver_qty,
                     "송장번호": invoice_no,
                     "운송방법": shipping_method,

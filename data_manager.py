@@ -467,14 +467,11 @@ class DataManager:
         except Exception as e:
             print(f"생산 요청일 동기화 실패: {e}")
 
-    # [NEW] 생산 상태 매핑 정보 가져오기
     def get_production_status_map(self):
-        """생산 요청 파일에서 (관리번호 -> 생산상태) 매핑 정보를 읽어옵니다."""
         if not os.path.exists(self.production_request_path):
             return {}
 
         try:
-            # data_only=True로 수식이 아닌 값을 읽음
             wb = openpyxl.load_workbook(self.production_request_path, data_only=True, read_only=True)
             if "Data" not in wb.sheetnames:
                 return {}
@@ -482,8 +479,6 @@ class DataManager:
             ws = wb["Data"]
             status_map = {}
             
-            # 2행부터 데이터가 있다고 가정 (헤더 제외)
-            # A열(0): 관리번호, N열(13): 생산상태
             for row in ws.iter_rows(min_row=2, values_only=True):
                 if not row or len(row) < 14: continue
                 
@@ -497,4 +492,40 @@ class DataManager:
             return status_map
         except Exception as e:
             print(f"생산 상태 로드 실패: {e}")
+            return {}
+
+    # [NEW] 시리얼 번호 매핑 정보 가져오기
+    def get_serial_number_map(self):
+        """
+        생산 요청 파일에서 (관리번호, 모델명, 상세) -> 시리얼 번호 매핑 정보를 읽어옵니다.
+        A열(0): 관리번호, C열(2): 모델명, D열(3): 상세, K열(10): 시리얼 번호
+        """
+        if not os.path.exists(self.production_request_path):
+            return {}
+
+        try:
+            wb = openpyxl.load_workbook(self.production_request_path, data_only=True, read_only=True)
+            if "Data" not in wb.sheetnames:
+                return {}
+            
+            ws = wb["Data"]
+            serial_map = {}
+            
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                if not row or len(row) < 11: continue
+                
+                mgmt_no = str(row[0]).strip() if row[0] else ""
+                model = str(row[2]).strip() if row[2] else ""
+                desc = str(row[3]).strip() if row[3] else ""
+                serial = str(row[10]).strip() if row[10] else "-"
+                
+                # 키를 튜플로 생성 (관리번호, 모델명, 상세)
+                key = (mgmt_no, model, desc)
+                if mgmt_no: # 관리번호가 있는 경우만 유효
+                    serial_map[key] = serial
+            
+            wb.close()
+            return serial_map
+        except Exception as e:
+            print(f"시리얼 번호 로드 실패: {e}")
             return {}
