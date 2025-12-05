@@ -28,7 +28,6 @@ class KanbanView(ctk.CTkFrame):
         self.create_widgets()
         self.refresh_data()
 
-    # ... (create_widgets, refresh_data 등 생략) ...
     def destroy(self):
         if self.click_timer: self.after_cancel(self.click_timer)
         super().destroy()
@@ -82,26 +81,60 @@ class KanbanView(ctk.CTkFrame):
         parent = self.column_frames[col_name]["frame"]
         card = ctk.CTkFrame(parent, fg_color=COLORS["bg_medium"], corner_radius=6)
         card.pack(fill="x", pady=4, padx=2)
+        
         comp = row['업체명']
         model = row['모델명']
         amt = row.get('합계금액', 0)
         try: amt_str = f"{float(amt):,.0f}"
         except: amt_str = str(amt)
+        
         ctk.CTkLabel(card, text=comp, font=(FONT_FAMILY, 11, "bold"), text_color=COLORS["primary"]).pack(anchor="w", padx=8, pady=(5,0))
         ctk.CTkLabel(card, text=model, font=(FONT_FAMILY, 11)).pack(anchor="w", padx=8)
         ctk.CTkLabel(card, text=f"₩ {amt_str}", font=(FONT_FAMILY, 10), text_color=COLORS["text_dim"]).pack(anchor="e", padx=8, pady=(0,5))
+        
         mgmt_no = row['관리번호']
+        status = str(row['Status']) # 상태 값
         drag_text = f"[{mgmt_no}] {comp}"
+        
         for w in [card] + card.winfo_children():
+            # 드래그 이벤트
             w.bind("<Button-1>", lambda e, r=mgmt_no, s=col_name, t=drag_text, wi=card: self.start_drag(e, r, s, t, wi))
             w.bind("<B1-Motion>", self.do_drag)
             w.bind("<ButtonRelease-1>", self.stop_drag)
             
-            # [수정] 관리번호에 따라 적절한 팝업 열기
-            if str(mgmt_no).startswith("Q"):
-                w.bind("<Double-1>", lambda e, r=mgmt_no: self.pm.open_quote_popup(r))
-            else:
-                w.bind("<Double-1>", lambda e, r=mgmt_no: self.pm.open_order_popup(r))
+            # [수정] 더블 클릭 시 상태에 따른 팝업 호출 (라우팅 함수 사용)
+            w.bind("<Double-1>", lambda e, r=mgmt_no, s=status: self._on_card_double_click(r, s))
+
+    def _on_card_double_click(self, mgmt_no, status):
+        """상태에 따라 적절한 팝업을 엽니다."""
+        # 1. 완료/취소/보류 등 종료된 건 -> CompletePopup
+        if status in ["완료", "취소", "보류"]:
+            self.pm.open_complete_popup(mgmt_no)
+            return
+
+        # 2. 견적 단계 (Q로 시작하거나 상태가 '견적') -> QuotePopup
+        if str(mgmt_no).startswith("Q") or status == "견적":
+            self.pm.open_quote_popup(mgmt_no)
+            return
+
+        # 3. 수주/주문 단계 -> OrderPopup
+        if status in ["수주", "주문", "주문 접수"]:
+            self.pm.open_order_popup(mgmt_no)
+            return
+
+        # 4. 생산/납품 단계 -> DeliveryPopup
+        # '생산중', '납품대기', '납품대기/입금완료' 등
+        if status in ["생산중", "납품대기", "납품대기/입금완료"]:
+            self.pm.open_delivery_popup(mgmt_no)
+            return
+
+        # 5. 수금 단계 (납품완료/입금대기) -> PaymentPopup
+        if status == "납품완료/입금대기":
+            self.pm.open_payment_popup(mgmt_no)
+            return
+
+        # 6. 그 외 (기본값) -> OrderPopup으로 연결 (안전장치)
+        self.pm.open_order_popup(mgmt_no)
 
     def start_drag(self, event, mgmt_no, status, text, widget):
         self.drag_data.update({"item": widget, "mgmt_no": mgmt_no, "start_status": status, "text": text})
@@ -146,7 +179,7 @@ class KanbanView(ctk.CTkFrame):
                 new_status = target_col
                 if target_col == "납품/입금": new_status = "납품대기"
                 
-                # [수정] 트랜잭션 적용
+                # 트랜잭션 적용
                 def update_logic(dfs):
                     mask = dfs["data"]["관리번호"] == mgmt_no
                     if mask.any():
