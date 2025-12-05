@@ -102,7 +102,8 @@ class ClientPopup(ctk.CTkToplevel):
         doc_frame = ctk.CTkFrame(right_col, fg_color=COLORS["bg_medium"], corner_radius=6)
         doc_frame.pack(fill="x", pady=(0, 15))
         
-        self._add_file_row(doc_frame, "사업자등록증", "사업자등록증경로")
+        # [수정] height 파라미터 전달 (기본 28, 여기선 50으로 설정하여 드래그 영역 확보)
+        self._add_file_row(doc_frame, "사업자등록증", "사업자등록증경로", height=65)
 
         # --- Bottom Section (Notes) ---
         bottom_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
@@ -134,8 +135,9 @@ class ClientPopup(ctk.CTkToplevel):
 
     # --- Helper Methods for UI Construction ---
     
-    def _create_group_header(self, parent, text):
-        ctk.CTkLabel(parent, text=text, font=FONTS["header"], text_color=COLORS["primary"]).pack(anchor="w", pady=(0, 5))
+    def _create_group_header(self, parent, text, **kwargs):
+        # [수정] kwargs 지원 (height 등)
+        ctk.CTkLabel(parent, text=text, font=FONTS["header"], text_color=COLORS["primary"], **kwargs).pack(anchor="w", pady=(0, 5))
 
     def _add_input_row(self, parent, label, key, placeholder=""):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
@@ -159,20 +161,21 @@ class ClientPopup(ctk.CTkToplevel):
         self.entries[key] = combo
         return combo
 
-    def _add_file_row(self, parent, label, key):
+    def _add_file_row(self, parent, label, key, height=28):
+        # [수정] height 파라미터 추가
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.pack(fill="x", padx=10, pady=5)
         
         ctk.CTkLabel(frame, text=label, width=90, anchor="w", font=FONTS["main"], text_color=COLORS["text_dim"]).pack(side="left")
         
-        entry = ctk.CTkEntry(frame, height=65, placeholder_text="파일 드래그", font=FONTS["main"])
+        entry = ctk.CTkEntry(frame, height=height, placeholder_text="파일 드래그", font=FONTS["main"])
         entry.pack(side="left", fill="x", expand=True)
         self.entries[key] = entry
         
         # Buttons
-        ctk.CTkButton(frame, text="열기", width=40, height=28, command=lambda: self.open_file(entry, key),
+        ctk.CTkButton(frame, text="열기", width=40, height=height, command=lambda: self.open_file(entry, key),
                       fg_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="left", padx=(5, 0))
-        ctk.CTkButton(frame, text="삭제", width=40, height=28, command=lambda: self.clear_entry(entry, key),
+        ctk.CTkButton(frame, text="삭제", width=40, height=height, command=lambda: self.clear_entry(entry, key),
                       fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left", padx=(5, 0))
 
         # DnD Setup

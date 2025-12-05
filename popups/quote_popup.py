@@ -32,7 +32,7 @@ class QuotePopup(BasePopup):
     
     def _create_widgets(self):
         self.configure(fg_color=COLORS["bg_dark"])
-        self.geometry("1350x850") # OrderPopup과 동일한 크기
+        self.geometry("1550x850") # OrderPopup과 동일한 크기
         
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.pack(fill="both", expand=True, padx=20, pady=20)
@@ -204,7 +204,7 @@ class QuotePopup(BasePopup):
 
         # 헤더
         headers = ["품명", "모델명", "Description", "수량", "단가", "공급가액", "세액", "합계"]
-        widths = [120, 120, 150, 50, 80, 80, 60, 80]
+        widths = [150,150,200,60,100,100,80,100]
         
         header_frame = ctk.CTkFrame(parent, height=35, fg_color=COLORS["bg_dark"])
         header_frame.pack(fill="x", padx=15)
