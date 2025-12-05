@@ -178,10 +178,11 @@ class QuotePopup(BasePopup):
         # 3. 문서 발행
         ctk.CTkLabel(parent, text="문서 발행", font=FONTS["header"]).pack(anchor="w", padx=10, pady=(0, 5))
         
-        self.btn_export = ctk.CTkButton(parent, text="📄 견적서 발행 (PDF)", command=self.export_quote, height=35,
-                                      fg_color=COLORS["warning"], hover_color="#D35400", 
-                                      text_color="white", font=FONTS["main_bold"])
+        self.btn_export = ctk.CTkButton(parent, text="📄 견적서 발행 (PDF)", command=self.export_quote, height=30,
+                                      fg_color=COLORS["bg_light"], hover_color="primary_hover", 
+                                      text_color=COLORS["text"], font=FONTS["main_bold"])
         self.btn_export.pack(fill="x", padx=10, pady=5)
+
 
     def _setup_items_panel(self, parent):
         # 타이틀 및 요약

@@ -29,97 +29,266 @@ class PaymentPopup(BasePopup):
         super().__init__(parent, data_manager, refresh_callback, popup_title="수금", mgmt_no=self.mgmt_nos[0])
 
     def _create_widgets(self):
-        super()._create_widgets()
-        self._create_payment_specific_widgets()
+        self.configure(fg_color=COLORS["bg_dark"])
+        self.geometry("1500x850")
         
-        try:
-            for child in self.scroll_items.master.winfo_children():
-                if isinstance(child, ctk.CTkButton):
-                    child.destroy()
-        except:
-            pass
+        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_container.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # 1. 헤더
+        self._create_header(self.main_container)
+        
+        # 2. 메인 콘텐츠 (Split View)
+        self.content_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.content_frame.pack(fill="both", expand=True, pady=10)
+        
+        # 좌측: 수금 정보 (Fixed 400px)
+        self.info_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10, width=400)
+        self.info_panel.pack(side="left", fill="y", padx=(0, 10))
+        self.info_panel.pack_propagate(False)
+        
+        # 우측: 품목 리스트 (Flexible)
+        self.items_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10)
+        self.items_panel.pack(side="right", fill="both", expand=True, padx=(10, 0))
+        self.items_panel.pack_propagate(False)
+        
+        self._setup_info_panel(self.info_panel)
+        self._setup_items_panel(self.items_panel)
+        
+        # 3. 하단 액션 바
+        self._create_footer(self.main_container)
+
+    def _create_header(self, parent):
+        header_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        header_frame.pack(fill="x", pady=(0, 10))
+        
+        # 상단: ID 및 상태
+        top_row = ctk.CTkFrame(header_frame, fg_color="transparent")
+        top_row.pack(fill="x", anchor="w")
+        
+        # ID 표시
+        id_text = self.mgmt_nos[0]
+        if len(self.mgmt_nos) > 1:
+            id_text += f" 외 {len(self.mgmt_nos)-1}건"
             
-        self.geometry("1100x850")
+        self.entry_id = ctk.CTkEntry(top_row, width=200, font=FONTS["main_bold"], text_color=COLORS["text_dim"])
+        self.entry_id.pack(side="left")
+        self.entry_id.insert(0, id_text)
+        self.entry_id.configure(state="readonly")
+        
+        # 상태 콤보박스 (헤더에 배치)
+        self.combo_status = ctk.CTkComboBox(top_row, values=["주문", "생산중", "완료", "취소", "보류"], 
+                                          width=100, font=FONTS["main"], state="readonly")
+        self.combo_status.pack(side="left", padx=10)
+        self.combo_status.set("주문")
 
-    def _create_payment_specific_widgets(self):
-        # ... (Summary frame - No changes) ...
-        summary_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"], corner_radius=10)
-        try:
-            list_frame = self.scroll_items.master
-            summary_frame.pack(fill="x", padx=20, pady=(0, 10), before=list_frame)
-        except:
-            summary_frame.pack(fill="x", padx=20, pady=(0, 10))
-
+    def _setup_info_panel(self, parent):
+        # 스크롤 없이 고정된 패널 사용
+        
+        # 1. 수금 요약
+        ctk.CTkLabel(parent, text="수금 요약", font=FONTS["header"]).pack(anchor="w", padx=10, pady=(10, 5))
+        
+        summary_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        summary_frame.pack(fill="x", padx=10, pady=5)
+        
         self.lbl_total_amount = self._add_summary_row(summary_frame, "총 합계금액", "0", 0)
         self.lbl_paid_amount = self._add_summary_row(summary_frame, "기수금액", "0", 1)
         
         line = ctk.CTkFrame(summary_frame, height=2, fg_color=COLORS["border"])
-        line.grid(row=2, column=0, columnspan=2, sticky="ew", padx=15, pady=5)
+        line.grid(row=2, column=0, columnspan=2, sticky="ew", padx=5, pady=10)
         
-        ctk.CTkLabel(summary_frame, text="남은 미수금", font=FONTS["header"], text_color=COLORS["danger"]).grid(row=3, column=0, padx=15, pady=(5, 15), sticky="w")
+        ctk.CTkLabel(summary_frame, text="남은 미수금", font=FONTS["header"], text_color=COLORS["danger"]).grid(row=3, column=0, padx=5, pady=5, sticky="w")
         self.lbl_unpaid_amount = ctk.CTkLabel(summary_frame, text="0", font=FONTS["title"], text_color=COLORS["danger"])
-        self.lbl_unpaid_amount.grid(row=3, column=1, padx=15, pady=(5, 15), sticky="e")
-
-        # Form Frame
-        form_frame = ctk.CTkFrame(self, fg_color="transparent")
-        try:
-            btn_frame = self.winfo_children()[-1]
-            form_frame.pack(fill="x", padx=20, pady=10, before=btn_frame)
-        except:
-            form_frame.pack(fill="x", padx=20, pady=10)
+        self.lbl_unpaid_amount.grid(row=3, column=1, padx=5, pady=5, sticky="e")
         
-        # Row 0
-        ctk.CTkLabel(form_frame, text="입금액", font=FONTS["main_bold"]).grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.entry_payment = ctk.CTkEntry(form_frame, width=200, font=FONTS["header"])
-        self.entry_payment.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        summary_frame.columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(form_frame, text="입금일", font=FONTS["main_bold"]).grid(row=0, column=2, padx=5, pady=5, sticky="w")
-        self.entry_pay_date = ctk.CTkEntry(form_frame, width=150)
-        self.entry_pay_date.grid(row=0, column=3, padx=5, pady=5, sticky="w")
+        ctk.CTkFrame(parent, height=2, fg_color=COLORS["border"]).pack(fill="x", padx=10, pady=10)
+
+        # 2. 입금 정보 입력
+        ctk.CTkLabel(parent, text="입금 정보", font=FONTS["header"]).pack(anchor="w", padx=10, pady=(0, 5))
+        
+        input_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        input_frame.pack(fill="x", padx=10)
+        input_frame.columnconfigure(1, weight=1)
+        
+        # 입금액
+        ctk.CTkLabel(input_frame, text="입금액", font=FONTS["main_bold"]).grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.entry_payment = ctk.CTkEntry(input_frame, height=35, font=FONTS["header"])
+        self.entry_payment.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        
+        # 입금일
+        ctk.CTkLabel(input_frame, text="입금일", font=FONTS["main_bold"]).grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.entry_pay_date = ctk.CTkEntry(input_frame, height=30)
+        self.entry_pay_date.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
         self.entry_pay_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
 
-        # Row 1: Foreign Currency File
-        ctk.CTkLabel(form_frame, text="외국환 거래 계산서", font=FONTS["main"]).grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        self.entry_file_foreign = ctk.CTkEntry(form_frame, width=300)
-        self.entry_file_foreign.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
+        ctk.CTkFrame(parent, height=2, fg_color=COLORS["border"]).pack(fill="x", padx=10, pady=10)
+
+        # 3. 증빙 파일 (DnD)
+        ctk.CTkLabel(parent, text="증빙 파일", font=FONTS["header"]).pack(anchor="w", padx=10, pady=(0, 5))
         
-        btn_frame_1 = ctk.CTkFrame(form_frame, fg_color="transparent")
-        btn_frame_1.grid(row=1, column=3, padx=5, pady=5, sticky="w")
-        ctk.CTkButton(btn_frame_1, text="열기", width=50, command=lambda: self.open_file(self.entry_file_foreign, "외화입금증빙경로"), fg_color=COLORS["bg_medium"], text_color=COLORS["text"]).pack(side="left", padx=2)
-        ctk.CTkButton(btn_frame_1, text="삭제", width=50, command=lambda: self.clear_entry(self.entry_file_foreign, "외화입금증빙경로"), fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left", padx=2)
-
-        # Row 2: Remittance Detail File
-        ctk.CTkLabel(form_frame, text="Remittance Detail", font=FONTS["main"]).grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        self.entry_file_remit = ctk.CTkEntry(form_frame, width=300)
-        self.entry_file_remit.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
-
-        btn_frame_2 = ctk.CTkFrame(form_frame, fg_color="transparent")
-        btn_frame_2.grid(row=2, column=3, padx=5, pady=5, sticky="w")
-        ctk.CTkButton(btn_frame_2, text="열기", width=50, command=lambda: self.open_file(self.entry_file_remit, "송금상세경로"), fg_color=COLORS["bg_medium"], text_color=COLORS["text"]).pack(side="left", padx=2)
-        ctk.CTkButton(btn_frame_2, text="삭제", width=50, command=lambda: self.clear_entry(self.entry_file_remit, "송금상세경로"), fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left", padx=2)
-
-        # [Fix] DND Setup with windnd
+        # 외화입금증빙
+        self._create_file_input(parent, "외화입금증빙", "외화입금증빙경로")
+        
+        # 송금상세
+        self._create_file_input(parent, "송금상세(Remittance)", "송금상세경로")
+        
+        # DnD Setup
         try:
             def hook_dnd():
-                if self.entry_file_foreign.winfo_exists():
+                if self.info_panel.winfo_exists():
+                    # 각 엔트리에 대해 DnD 훅 설정
                     windnd.hook_dropfiles(self.entry_file_foreign.winfo_id(), 
                                           lambda f: self.on_drop(f, "외화입금증빙경로"))
-                if self.entry_file_remit.winfo_exists():
                     windnd.hook_dropfiles(self.entry_file_remit.winfo_id(), 
                                           lambda f: self.on_drop(f, "송금상세경로"))
-            
             self.after(200, hook_dnd)
         except Exception as e:
-            print(f"DnD Error: {e}")
+            print(f"DnD Setup Error: {e}")
 
+    def _create_file_input(self, parent, label, col_name):
+        f = ctk.CTkFrame(parent, fg_color="transparent")
+        f.pack(fill="x", padx=10, pady=5)
+        
+        ctk.CTkLabel(f, text=label, font=FONTS["main"], text_color=COLORS["text_dim"]).pack(anchor="w")
+        
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x", pady=(2, 0))
+        
+        entry = ctk.CTkEntry(row, placeholder_text="파일을 드래그하세요", height=28)
+        entry.pack(side="left", fill="x", expand=True)
+        
+        if col_name == "외화입금증빙경로": self.entry_file_foreign = entry
+        else: self.entry_file_remit = entry
+        
+        ctk.CTkButton(row, text="열기", width=50, height=28,
+                      command=lambda: self.open_file(entry, col_name),
+                      fg_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="left", padx=(5, 0))
+                      
+        ctk.CTkButton(row, text="삭제", width=50, height=28,
+                      command=lambda: self.clear_entry(entry, col_name),
+                      fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left", padx=(5, 0))
+
+    def _setup_items_panel(self, parent):
+        # 타이틀
+        top_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        top_frame.pack(fill="x", padx=15, pady=15)
+        
+        ctk.CTkLabel(top_frame, text="관련 품목 리스트 (Read Only)", font=FONTS["header"]).pack(side="left")
+        
+        # 헤더
+        headers = ["품명", "모델명", "Description", "수량", "단가", "공급가액", "세액", "합계"]
+        widths = [150,150,200,60,100,100,80,100]
+        
+        header_frame = ctk.CTkFrame(parent, height=35, fg_color=COLORS["bg_dark"])
+        header_frame.pack(fill="x", padx=15)
+        
+        for h, w in zip(headers, widths):
+            ctk.CTkLabel(header_frame, text=h, width=w, font=FONTS["main_bold"]).pack(side="left", padx=2)
+            
+        # 스크롤 리스트
+        self.scroll_items = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        self.scroll_items.pack(fill="both", expand=True, padx=10, pady=5)
+
+    def _create_footer(self, parent):
+        footer_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        footer_frame.pack(fill="x", pady=(10, 0))
+        
+        ctk.CTkButton(footer_frame, text="닫기", command=self.destroy, width=100, height=45,
+                      fg_color=COLORS["bg_light"], hover_color=COLORS["bg_light_hover"], 
+                      text_color=COLORS["text"]).pack(side="left")
+                      
+        ctk.CTkButton(footer_frame, text="수금 처리 (저장)", command=self.save, width=200, height=45,
+                      fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], 
+                      font=FONTS["header"]).pack(side="right")
+
+    def _add_summary_row(self, parent, label_text, value_text, row):
+        ctk.CTkLabel(parent, text=label_text, font=FONTS["main"], text_color=COLORS["text_dim"]).grid(row=row, column=0, padx=5, pady=5, sticky="w")
+        value_label = ctk.CTkLabel(parent, text=value_text, font=FONTS["main_bold"])
+        value_label.grid(row=row, column=1, padx=5, pady=5, sticky="e")
+        return value_label
+
+    def _add_item_row(self, item_data=None):
+        # BasePopup._add_item_row를 사용하되, 버튼 제거 및 ReadOnly 처리
+        row_widgets = super()._add_item_row(item_data)
+        
+        # 삭제 버튼 제거 (있다면)
+        try:
+            for child in row_widgets["frame"].winfo_children():
+                if isinstance(child, ctk.CTkButton): child.destroy()
+        except: pass
+        
+        if item_data is not None:
+            def set_val(key, val, is_num=False):
+                if is_num:
+                    try: val = f"{float(str(val).replace(',', '')):,.0f}"
+                    except: val = "0"
+                else:
+                    val = str(val)
+                    if val == "nan": val = ""
+                
+                w = row_widgets[key]
+                w.configure(state="normal")
+                w.delete(0, "end")
+                w.insert(0, val)
+                w.configure(state="readonly")
+
+            set_val("item", item_data.get("품목명", ""))
+            set_val("model", item_data.get("모델명", ""))
+            set_val("desc", item_data.get("Description", ""))
+            set_val("qty", item_data.get("수량", 0), is_num=True)
+            set_val("price", item_data.get("단가", 0), is_num=True)
+            set_val("supply", item_data.get("공급가액", 0), is_num=True)
+            set_val("tax", item_data.get("세액", 0), is_num=True)
+            set_val("total", item_data.get("합계금액", 0), is_num=True)
+                
+        return row_widgets
+
+    def _load_data(self):
+        df = self.dm.df_data
+        rows = df[df["관리번호"].isin(self.mgmt_nos)].copy()
+        
+        if rows.empty: return
+
+        first = rows.iloc[0]
+        
+        self.combo_status.set(str(first.get("Status", "")))
+        
+        # BasePopup의 entry_client 등이 생성되지 않았으므로(BasePopup._create_widgets를 안부름)
+        # 여기서는 품목 리스트만 채움
+        
+        for _, row in rows.iterrows():
+            self._add_item_row(row)
+
+        self._calculate_and_display_totals(rows)
+
+    def _calculate_and_display_totals(self, df_rows):
+        try:
+            total_amount = pd.to_numeric(df_rows["합계금액"], errors='coerce').sum()
+            paid_amount = pd.to_numeric(df_rows["기수금액"], errors='coerce').sum()
+        except:
+            total_amount = 0
+            paid_amount = 0
+            
+        unpaid_amount = total_amount - paid_amount
+
+        self.lbl_total_amount.configure(text=f"{total_amount:,.0f}")
+        self.lbl_paid_amount.configure(text=f"{paid_amount:,.0f}")
+        self.lbl_unpaid_amount.configure(text=f"{unpaid_amount:,.0f}")
+        
+        self.entry_payment.delete(0, "end")
+        self.entry_payment.insert(0, f"{unpaid_amount:.0f}")
+
+    # ==========================================================================
+    # 파일 및 DnD
+    # ==========================================================================
     def on_drop(self, filenames, col_name):
         if filenames:
-            try:
-                file_path = filenames[0].decode('mbcs')
-            except:
+            try: file_path = filenames[0].decode('mbcs')
+            except: 
                 try: file_path = filenames[0].decode('utf-8', errors='ignore')
                 except: return
-            
             self.update_file_entry(col_name, file_path)
 
     def update_file_entry(self, col_name, full_path):
@@ -148,113 +317,9 @@ class PaymentPopup(BasePopup):
         if col_name in self.full_paths:
             del self.full_paths[col_name]
 
-    def _add_summary_row(self, parent, label_text, value_text, row):
-        ctk.CTkLabel(parent, text=label_text, font=FONTS["main"], text_color=COLORS["text_dim"]).grid(row=row, column=0, padx=15, pady=5, sticky="w")
-        value_label = ctk.CTkLabel(parent, text=value_text, font=FONTS["main_bold"])
-        value_label.grid(row=row, column=1, padx=15, pady=5, sticky="e")
-        parent.grid_columnconfigure(1, weight=1)
-        return value_label
-
-    def _load_data(self):
-        df = self.dm.df_data
-        rows = df[df["관리번호"].isin(self.mgmt_nos)].copy()
-        
-        if rows.empty: return
-
-        first = rows.iloc[0]
-
-        self.entry_id.configure(state="normal")
-        self.entry_id.delete(0, "end")
-        
-        if len(self.mgmt_nos) > 1:
-            self.entry_id.insert(0, f"{self.mgmt_nos[0]} 외 {len(self.mgmt_nos)-1}건")
-        else:
-            self.entry_id.insert(0, str(self.mgmt_nos[0]))
-            
-        self.entry_id.configure(state="readonly")
-        
-        self.combo_status.set(str(first.get("Status", "")))
-        
-        widgets = [
-            (self.entry_client, "업체명"),
-            (self.entry_project, "프로젝트명"),
-            (self.entry_req, "주문요청사항"),
-            (self.entry_note, "비고")
-        ]
-        
-        for widget, col in widgets:
-            if widget is None: continue
-            val = str(first.get(col, ""))
-            if val == "nan": val = ""
-            widget.configure(state="normal")
-            widget.delete(0, "end")
-            widget.insert(0, val)
-            widget.configure(state="readonly")
-
-        for _, row in rows.iterrows():
-            widgets = self._add_item_row(row)
-            for w in widgets.values():
-                if isinstance(w, ctk.CTkEntry):
-                    w.configure(state="readonly")
-            
-            try:
-                for child in widgets["frame"].winfo_children():
-                    if isinstance(child, ctk.CTkButton):
-                        child.destroy()
-            except: pass
-
-        self._calculate_and_display_totals(rows)
-        
-    def _add_item_row(self, item_data=None):
-        row_widgets = super()._add_item_row(item_data)
-        if item_data is not None:
-            def set_val(key, val, is_num=False):
-                if is_num:
-                    try: val = f"{float(str(val).replace(',', '')):,.0f}"
-                    except: val = "0"
-                else:
-                    val = str(val)
-                    if val == "nan": val = ""
-                
-                w = row_widgets[key]
-                w.delete(0, "end")
-                w.insert(0, val)
-
-            set_val("item", item_data.get("품목명", ""))
-            set_val("model", item_data.get("모델명", ""))
-            set_val("desc", item_data.get("Description", ""))
-            set_val("qty", item_data.get("수량", 0), is_num=True)
-            set_val("price", item_data.get("단가", 0), is_num=True)
-            
-            for k in ["supply", "tax", "total"]:
-                row_widgets[k].configure(state="normal")
-            
-            set_val("supply", item_data.get("공급가액", 0), is_num=True)
-            set_val("tax", item_data.get("세액", 0), is_num=True)
-            set_val("total", item_data.get("합계금액", 0), is_num=True)
-            
-            for k in ["supply", "tax", "total"]:
-                row_widgets[k].configure(state="readonly")
-                
-        return row_widgets
-
-    def _calculate_and_display_totals(self, df_rows):
-        try:
-            total_amount = pd.to_numeric(df_rows["합계금액"], errors='coerce').sum()
-            paid_amount = pd.to_numeric(df_rows["기수금액"], errors='coerce').sum()
-        except:
-            total_amount = 0
-            paid_amount = 0
-            
-        unpaid_amount = total_amount - paid_amount
-
-        self.lbl_total_amount.configure(text=f"{total_amount:,.0f}")
-        self.lbl_paid_amount.configure(text=f"{paid_amount:,.0f}")
-        self.lbl_unpaid_amount.configure(text=f"{unpaid_amount:,.0f}")
-        
-        self.entry_payment.delete(0, "end")
-        self.entry_payment.insert(0, f"{unpaid_amount:.0f}")
-
+    # ==========================================================================
+    # 저장 로직
+    # ==========================================================================
     def save(self):
         try:
             payment_amount = float(self.entry_payment.get().replace(",", ""))
@@ -421,13 +486,18 @@ class PaymentPopup(BasePopup):
         success, msg = self.dm._execute_transaction(update_logic)
 
         if success:
+            self.attributes("-topmost", False)
             messagebox.showinfo("성공", "수금 처리가 완료되었습니다.", parent=self)
             self.refresh_callback()
             self.destroy()
         else:
+            self.attributes("-topmost", False)
             messagebox.showerror("실패", f"저장에 실패했습니다: {msg}", parent=self)
+            self.attributes("-topmost", True)
     
+    # BasePopup 추상 메서드 구현 (사용 안함)
     def _generate_new_id(self): pass
     def delete(self): pass
     def _on_client_select(self, client_name): pass 
     def _calculate_totals(self): pass
+    def _load_clients(self): pass
