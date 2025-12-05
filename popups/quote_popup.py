@@ -10,15 +10,24 @@ from styles import COLORS, FONTS
 from export_manager import ExportManager
 
 class QuotePopup(BasePopup):
-    def __init__(self, parent, data_manager, refresh_callback, mgmt_no=None):
+    def __init__(self, parent, data_manager, refresh_callback, mgmt_no=None, copy_mode=False):
         self.export_manager = ExportManager()
+        self.copy_mode = copy_mode
+        self.copy_src_no = mgmt_no if copy_mode else None
         
-        # 견적 팝업은 항상 "견적" 타이틀을 가짐
-        super().__init__(parent, data_manager, refresh_callback, popup_title="견적", mgmt_no=mgmt_no)
+        # [수정] 복사 모드일 경우, 부모 클래스에는 mgmt_no를 None(신규)으로 전달하여 새 번호를 따게 함
+        real_mgmt_no = None if copy_mode else mgmt_no
+        
+        super().__init__(parent, data_manager, refresh_callback, popup_title="견적", mgmt_no=real_mgmt_no)
 
-        if not mgmt_no:
+        # 신규 등록(또는 복사)일 때 기본값 설정
+        if not real_mgmt_no:
             self.entry_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
             self.combo_status.set("견적")
+            
+        # [신규] 복사 모드라면 원본 데이터 로드하여 필드 채우기
+        if self.copy_mode and self.copy_src_no:
+            self._load_copied_data()
     
     def _create_widgets(self):
         self._create_top_frame()
@@ -74,10 +83,7 @@ class QuotePopup(BasePopup):
         self.entry_project.grid(row=2, column=1, columnspan=5, padx=5, sticky="ew")
         self.btn_export.grid(row=2, column=6, columnspan=2, padx=5, sticky="e")
 
-    # _create_bottom_frame은 BasePopup의 기본값(비고만 있음)을 그대로 사용하면 되므로 오버라이드 제거
-
     def _create_additional_frames(self):
-        # ... (기존과 동일) ...
         items_frame = self.winfo_children()[1]
         info_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"], height=40)
         info_frame.pack(fill="x", padx=20, pady=(0, 10), before=items_frame)
@@ -244,8 +250,6 @@ class QuotePopup(BasePopup):
         self.entry_tax_rate.insert(0, tax_rate)
 
         self.entry_project.insert(0, str(first.get("프로젝트명", "")))
-        
-        # 주문요청사항 로드 로직 제거 (견적엔 없음)
         self.entry_note.insert(0, str(first.get("비고", "")))
         
         current_status = str(first.get("Status", "견적"))
@@ -253,6 +257,49 @@ class QuotePopup(BasePopup):
         
         self._on_client_select(client_name)
         for _, row in rows.iterrows(): self._add_item_row(row)
+
+    # [신규] 복사된 데이터 로드 메서드
+    def _load_copied_data(self):
+        df = self.dm.df_data
+        # 원본(copy_src_no) 데이터를 찾음
+        rows = df[df["관리번호"] == self.copy_src_no]
+        if rows.empty: return
+        
+        first = rows.iloc[0]
+        
+        # ID는 _generate_new_id()에 의해 이미 신규로 생성되어 있으므로 건드리지 않음
+        # 날짜는 오늘 날짜로 유지 (이미 __init__에서 설정됨)
+        # 상태는 '견적'으로 유지 (이미 __init__에서 설정됨)
+
+        self.combo_type.set(str(first.get("구분", "내수")))
+        
+        client_name = str(first.get("업체명", ""))
+        self.entry_client.delete(0, "end")
+        self.entry_client.insert(0, client_name)
+        
+        self.combo_currency.set(str(first.get("통화", "KRW")))
+        
+        saved_tax = first.get("세율(%)", "")
+        if saved_tax != "" and saved_tax != "-": tax_rate = str(saved_tax)
+        else:
+            currency = str(first.get("통화", "KRW"))
+            tax_rate = "10" if currency == "KRW" else "0"
+        self.entry_tax_rate.delete(0, "end")
+        self.entry_tax_rate.insert(0, tax_rate)
+
+        # 프로젝트명 뒤에 (Copy) 붙이기
+        original_proj = str(first.get("프로젝트명", ""))
+        self.entry_project.insert(0, f"{original_proj} (Copy)")
+        
+        self.entry_note.insert(0, str(first.get("비고", "")))
+        
+        self._on_client_select(client_name)
+        
+        # 품목 추가
+        for _, row in rows.iterrows(): self._add_item_row(row)
+        
+        # 윈도우 타이틀 업데이트
+        self.title(f"견적 복사 등록 (원본: {self.copy_src_no}) - Sales Manager")
 
     def save(self):
         mgmt_no = self.entry_id.get()
@@ -269,8 +316,6 @@ class QuotePopup(BasePopup):
         except: tax_rate_val = 0
 
         new_rows = []
-        
-        # 주문요청사항은 견적 단계에선 없음 (빈 문자열)
         
         common_data = {
             "관리번호": mgmt_no,
@@ -300,9 +345,10 @@ class QuotePopup(BasePopup):
             new_rows.append(row_data)
 
         def update_logic(dfs):
+            # [수정] 복사 모드일 때도 mgmt_no는 신규이므로 self.mgmt_no 체크 로직 타지 않음 (self.mgmt_no가 None임)
+            # 일반 수정 모드(self.mgmt_no가 있음)일 때만 기존 데이터 삭제 로직 실행
             if self.mgmt_no:
                 mask = dfs["data"]["관리번호"] == self.mgmt_no
-                # 기존 데이터 중 보존해야 할 컬럼들 (주문 이후 단계의 정보들)
                 existing_rows = dfs["data"][mask]
                 if not existing_rows.empty:
                     first_exist = existing_rows.iloc[0]
@@ -317,8 +363,14 @@ class QuotePopup(BasePopup):
             new_df = pd.DataFrame(new_rows)
             dfs["data"] = pd.concat([dfs["data"], new_df], ignore_index=True)
             
-            action = "수정" if self.mgmt_no else "등록"
-            log_msg = f"견적 {action}: 번호 [{mgmt_no}] / 업체 [{client}]"
+            # 액션 로그 메시지 수정
+            if self.copy_mode:
+                action = "복사 등록"
+                log_msg = f"견적 복사: [{self.copy_src_no}] -> [{mgmt_no}] / 업체 [{client}]"
+            else:
+                action = "수정" if self.mgmt_no else "등록"
+                log_msg = f"견적 {action}: 번호 [{mgmt_no}] / 업체 [{client}]"
+                
             new_log = self.dm._create_log_entry(f"견적 {action}", log_msg)
             dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
             

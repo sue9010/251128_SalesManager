@@ -1,8 +1,8 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
-from datetime import datetime  # [수정] datetime import 위치 조정
+from datetime import datetime
 
-import pandas as pd  # [신규] 데이터 처리를 위해 추가
+import pandas as pd
 import customtkinter as ctk
 
 from config import Config
@@ -63,12 +63,13 @@ class QuoteView(ctk.CTkFrame):
         self.tree.bind("<Double-1>", self.on_double_click)
         self.tree.bind("<Button-3>", self.on_right_click)
         
-        # [수정] 우클릭 메뉴 항목 추가
+        # [수정] 우클릭 메뉴 항목 추가 (복사 포함)
         self.context_menu = tk.Menu(self, tearoff=0)
         self.context_menu.add_command(label="상세 보기 / 수정", command=self.on_context_edit)
+        self.context_menu.add_command(label="📋 견적 복사", command=self.on_context_copy) # [신규]
         self.context_menu.add_separator()
         self.context_menu.add_command(label="🛒 주문 확정 처리", command=self.on_context_order)
-        self.context_menu.add_separator() # 구분선 추가
+        self.context_menu.add_separator() 
         self.context_menu.add_command(label="🚫 견적 취소", command=self.on_context_cancel)
         self.context_menu.add_command(label="⏸ 보류 처리", command=self.on_context_hold)
 
@@ -92,8 +93,7 @@ class QuoteView(ctk.CTkFrame):
 
         keyword = self.entry_search.get().strip().lower()
         
-        # [수정] '취소' 상태도 검색 시에는 보이도록 하거나, 기본 뷰에서는 제외하는 정책 필요
-        # 여기서는 검색어가 없으면 '견적', '보류'만 보여주고, 검색어가 있으면 전체 검색으로 처리
+        # [수정] 기본적으로 견적, 보류 상태만 표시 (검색 시 전체)
         if not keyword:
             target_df = df[df["Status"].isin(["견적", "보류"])]
         else:
@@ -112,7 +112,6 @@ class QuoteView(ctk.CTkFrame):
             
             for _, row in grouped.iterrows():
                 if keyword:
-                    # 간단한 검색 필터 (관리번호, 업체명, 모델명)
                     search_text = f"{row['관리번호']} {row['업체명']} {row['모델명']}".lower()
                     if keyword not in search_text:
                         continue
@@ -153,7 +152,16 @@ class QuoteView(ctk.CTkFrame):
         mgmt_no = item["values"][0]
         self.pm.open_quote_popup(mgmt_no)
 
-    # [수정] 주문 확정 처리 (트랜잭션 적용)
+    # [신규] 견적 복사 이벤트 핸들러
+    def on_context_copy(self):
+        selected = self.tree.selection()
+        if not selected: return
+        item = self.tree.item(selected[0])
+        mgmt_no = item["values"][0]
+        
+        # 팝업 매니저를 통해 복사 모드로 열기
+        self.pm.open_quote_popup(mgmt_no, copy_mode=True)
+
     def on_context_order(self):
         selected = self.tree.selection()
         if not selected: return
@@ -169,11 +177,9 @@ class QuoteView(ctk.CTkFrame):
             else:
                 messagebox.showerror("실패", f"상태 변경에 실패했습니다.\n{msg}")
 
-    # [신규] 견적 취소 처리
     def on_context_cancel(self):
         self._process_status_change("취소", "해당 견적을 '취소' 처리하시겠습니까?")
 
-    # [신규] 보류 처리
     def on_context_hold(self):
         self._process_status_change("보류", "해당 견적을 '보류' 상태로 변경하시겠습니까?")
 
@@ -192,37 +198,29 @@ class QuoteView(ctk.CTkFrame):
             else:
                 messagebox.showerror("실패", f"처리에 실패했습니다.\n{msg}")
 
-    # [수정] 주문 확정 트랜잭션 로직
     def update_status_to_order(self, mgmt_no):
         def update_logic(dfs):
             mask = dfs["data"]["관리번호"] == mgmt_no
             if mask.any():
-                # 상태 변경 및 수주일 기록
                 dfs["data"].loc[mask, "Status"] = "주문"
                 dfs["data"].loc[mask, "수주일"] = datetime.now().strftime("%Y-%m-%d")
                 
-                # 로그 기록
                 log_msg = f"주문 확정: 번호 [{mgmt_no}] (견적 -> 주문)"
                 new_log = self.dm._create_log_entry("상태변경", log_msg)
                 dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
-                
                 return True, ""
             return False, "데이터를 찾을 수 없습니다."
 
         return self.dm._execute_transaction(update_logic)
 
-    # [신규] 일반 상태 변경 트랜잭션 로직 (취소, 보류 등)
     def _update_status_generic(self, mgmt_no, new_status):
         def update_logic(dfs):
             mask = dfs["data"]["관리번호"] == mgmt_no
             if mask.any():
                 dfs["data"].loc[mask, "Status"] = new_status
-                
-                # 로그 기록
                 log_msg = f"견적 상태변경({new_status}): 번호 [{mgmt_no}]"
                 new_log = self.dm._create_log_entry("상태변경", log_msg)
                 dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
-                
                 return True, ""
             return False, "데이터를 찾을 수 없습니다."
 
