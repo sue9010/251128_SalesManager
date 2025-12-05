@@ -95,8 +95,9 @@ class CompletePopup(BasePopup):
         self._setup_delivery_history_tab(self.tabview.tab("납품 이력"))
 
     def _setup_items_tab(self, parent):
-        headers = ["품명", "모델명", "Description", "수량", "단가", "공급가액", "세액", "합계금액"]
-        widths = [150, 150, 200, 60, 100, 100, 80, 100]
+        # 헤더 설정 (시리얼 번호 포함)
+        headers = ["품명", "모델명", "시리얼 번호", "Description", "수량", "단가", "공급가액", "세액", "합계금액"]
+        widths = [150, 150, 120, 200, 60, 100, 100, 80, 100]
         
         header_frame = ctk.CTkFrame(parent, height=30, fg_color=COLORS["bg_light"])
         header_frame.pack(fill="x", padx=5, pady=5)
@@ -171,6 +172,12 @@ class CompletePopup(BasePopup):
         rows = df[df["관리번호"].astype(str) == str(self.mgmt_no)]
         if rows.empty: return
 
+        # [수정] Delivery 시트 데이터 로드
+        delivery_df = self.dm.df_delivery
+        current_deliveries = pd.DataFrame()
+        if not delivery_df.empty:
+            current_deliveries = delivery_df[delivery_df["관리번호"].astype(str) == str(self.mgmt_no)]
+
         first = rows.iloc[0]
 
         # 헤더 & 배지
@@ -192,7 +199,6 @@ class CompletePopup(BasePopup):
         try: paid = pd.to_numeric(rows["기수금액"], errors='coerce').sum()
         except: paid = 0
         
-        # 포맷팅 로직 변경 (통화 코드 + 금액)
         self.lbl_amt_total.configure(text=f"{currency} {total:,.0f}")
         self.lbl_amt_paid.configure(text=f"{currency} {paid:,.0f}")
         
@@ -218,7 +224,29 @@ class CompletePopup(BasePopup):
         # 2. 품목 리스트 로드
         for widget in self.scroll_items.winfo_children(): widget.destroy()
         for _, row in rows.iterrows():
-            self._add_item_row(row)
+            item_name = str(row.get("품목명", "")).strip()
+            
+            # [수정] Delivery 시트에서 해당 품목의 시리얼 번호 찾기
+            serial = "-"
+            if not current_deliveries.empty:
+                # 품목명이 일치하고 시리얼 번호가 있는 행 필터링
+                target_del = current_deliveries[
+                    (current_deliveries["품목명"].astype(str).str.strip() == item_name) & 
+                    (current_deliveries["시리얼번호"].notna()) & 
+                    (current_deliveries["시리얼번호"].astype(str) != "-") &
+                    (current_deliveries["시리얼번호"].astype(str) != "")
+                ]
+                
+                if not target_del.empty:
+                    # 모든 시리얼 번호를 쉼표로 연결 (중복 제거)
+                    serials = sorted(list(set(target_del["시리얼번호"].astype(str).tolist())))
+                    serial = ", ".join(serials)
+
+            # 아이템 데이터에 시리얼 추가
+            item_data = row.to_dict()
+            item_data["시리얼번호"] = serial
+            
+            self._add_item_row(item_data)
 
         # 3. 입금 이력 로드
         for widget in self.scroll_payment.winfo_children(): widget.destroy()
@@ -249,11 +277,30 @@ class CompletePopup(BasePopup):
         # 5. 파일 리스트 로드
         for widget in self.files_scroll.winfo_children(): widget.destroy()
         has_files = False
-        if self._add_file_row("주문서(발주서)", first.get("발주서경로")): has_files = True
         
-        # [신규] 운송장 파일 추가
+        # 5-1. Data 시트의 파일들
+        if self._add_file_row("주문서(발주서)", first.get("발주서경로")): has_files = True
         if self._add_file_row("운송장", first.get("운송장경로")): has_files = True
         
+        # 5-2. Payment 시트의 파일들
+        added_paths = set()
+        
+        if not self.dm.df_payment.empty:
+            p_rows = self.dm.df_payment[self.dm.df_payment["관리번호"].astype(str) == str(self.mgmt_no)]
+            for _, prow in p_rows.iterrows():
+                f_path = str(prow.get("외화입금증빙경로", "")).strip()
+                if f_path and f_path.lower() != "nan" and f_path != "-" and f_path not in added_paths:
+                    if self._add_file_row("외국환 거래 계산서", f_path): 
+                        has_files = True
+                        added_paths.add(f_path)
+                
+                r_path = str(prow.get("송금상세경로", "")).strip()
+                if r_path and r_path.lower() != "nan" and r_path != "-" and r_path not in added_paths:
+                    if self._add_file_row("Remittance Detail", r_path): 
+                        has_files = True
+                        added_paths.add(r_path)
+
+        # 5-3. 사업자등록증
         client_name = str(first.get("업체명", ""))
         client_row = self.dm.df_clients[self.dm.df_clients["업체명"] == client_name]
         if not client_row.empty:
@@ -279,6 +326,11 @@ class CompletePopup(BasePopup):
         
         self._create_cell(row_frame, item_data.get("품목명", ""), 150, is_bold=True)
         self._create_cell(row_frame, item_data.get("모델명", ""), 150)
+        
+        # [수정] 시리얼 번호 셀 추가
+        serial = str(item_data.get("시리얼번호", "-"))
+        ctk.CTkLabel(row_frame, text=serial, width=120, font=FONTS["main"], anchor="center", text_color=COLORS["primary"]).pack(side="left", padx=2)
+        
         self._create_cell(row_frame, item_data.get("Description", ""), 200)
         self._create_cell(row_frame, item_data.get("수량", 0), 60, "center", True)
         self._create_cell(row_frame, item_data.get("단가", 0), 100, "right", True)
@@ -319,8 +371,10 @@ class CompletePopup(BasePopup):
         row.pack(fill="x", pady=2)
         
         ctk.CTkLabel(row, text="📄", font=FONTS["main"]).pack(side="left", padx=(10, 5))
-        ctk.CTkLabel(row, text=title, font=FONTS["main_bold"], width=100, anchor="w").pack(side="left")
-        ctk.CTkLabel(row, text=os.path.basename(path), font=FONTS["small"], text_color=COLORS["text_dim"]).pack(side="left", padx=10)
+        ctk.CTkLabel(row, text=title, font=FONTS["main_bold"], width=150, anchor="w").pack(side="left")
+        
+        file_name = os.path.basename(path)
+        ctk.CTkLabel(row, text=file_name, font=FONTS["small"], text_color=COLORS["text_dim"]).pack(side="left", padx=10)
         
         ctk.CTkButton(row, text="열기", width=50, height=24,
                       fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"],
