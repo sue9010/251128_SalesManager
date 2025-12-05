@@ -14,7 +14,8 @@ class DeliveryView(ctk.CTkFrame):
         self.dm = data_manager
         self.pm = popup_manager
 
-        self.display_cols = ["관리번호", "업체명", "모델명", "수량", "단가", "출고예정일", "Status"]
+        # [수정] 생산상태 컬럼 추가
+        self.display_cols = ["관리번호", "업체명", "모델명", "수량", "단가", "출고예정일", "생산상태", "Status"]
         
         self.create_widgets()
         self.style_treeview()
@@ -56,6 +57,7 @@ class DeliveryView(ctk.CTkFrame):
             if col == "관리번호": width = 120
             if col == "업체명": width = 150
             if col == "모델명": width = 200
+            if col == "생산상태": width = 100 # [신규] 컬럼 너비
             self.tree.column(col, width=width, anchor="center")
 
         self.tree.bind("<Double-1>", lambda e: self.on_process_delivery())
@@ -92,6 +94,9 @@ class DeliveryView(ctk.CTkFrame):
         df = self.dm.df_data
         if df.empty: return
 
+        # [신규] 생산 상태 매핑 데이터 가져오기
+        prod_status_map = self.dm.get_production_status_map()
+
         keyword = self.entry_search.get().strip().lower()
         target_status = ["생산중", "납품대기", "납품대기/입금완료"]
         target_df = df[df["Status"].astype(str).isin(target_status)]
@@ -114,13 +119,18 @@ class DeliveryView(ctk.CTkFrame):
             except:
                 fmt_price = str(row.get("단가", 0))
 
+            # [신규] 생산상태 값 찾기
+            mgmt_no = str(row.get("관리번호", ""))
+            prod_status = prod_status_map.get(mgmt_no, "-")
+
             values = [
-                row.get("관리번호"),
+                mgmt_no,
                 row.get("업체명"),
                 row.get("모델명"),
                 row.get("수량"),
                 fmt_price,
                 row.get("출고예정일"),
+                prod_status, # [신규] 값 삽입
                 row.get("Status")
             ]
             self.tree.insert("", "end", iid=idx, values=values)
@@ -134,15 +144,21 @@ class DeliveryView(ctk.CTkFrame):
         
         # 첫 번째 선택 항목 정보 가져오기
         first_item_idx = int(selected_items[0])
-        first_client = self.dm.df_data.loc[first_item_idx, "업체명"]
+        try:
+            first_client = self.dm.df_data.loc[first_item_idx, "업체명"]
+        except:
+            messagebox.showerror("오류", "선택된 데이터의 정보를 찾을 수 없습니다.")
+            return
         
         target_mgmt_nos = set() # 중복 제거를 위해 set 사용
 
         # 모든 선택된 항목이 동일한 업체명을 가졌는지 확인
         for item in selected_items:
             item_idx = int(item)
-            client = self.dm.df_data.loc[item_idx, "업체명"]
-            mgmt_no = self.dm.df_data.loc[item_idx, "관리번호"]
+            try:
+                client = self.dm.df_data.loc[item_idx, "업체명"]
+                mgmt_no = self.dm.df_data.loc[item_idx, "관리번호"]
+            except: continue
             
             if client != first_client:
                 messagebox.showwarning("주의", "동일한 업체의 항목들만 일괄 출고 처리가 가능합니다.")

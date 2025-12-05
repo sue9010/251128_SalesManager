@@ -186,7 +186,6 @@ class DataManager:
         except Exception as e:
             return False, f"트랜잭션 오류: {e}"
 
-    # [수정] 관리번호 기준 잔액 재계산 (문자열 처리 강화)
     def recalc_payment_status(self, dfs, mgmt_no):
         pay_df = dfs["payment"]
         if pay_df.empty:
@@ -194,7 +193,6 @@ class DataManager:
             last_pay_date = "-"
         else:
             target_pays = pay_df[pay_df["관리번호"].astype(str) == str(mgmt_no)]
-            # 콤마 제거 후 숫자 변환
             paid_series = target_pays["입금액"].astype(str).str.replace(",", "").replace("nan", "0")
             total_paid = pd.to_numeric(paid_series, errors='coerce').sum()
             
@@ -210,7 +208,6 @@ class DataManager:
         
         if len(indices) == 0: return
 
-        # 총 계약 금액 계산
         amt_series = data_df.loc[mask, "합계금액"].astype(str).str.replace(",", "").replace("nan", "0")
         total_contract_amt = pd.to_numeric(amt_series, errors='coerce').sum()
         
@@ -232,7 +229,6 @@ class DataManager:
             
             remaining_to_allocate -= allocated
             
-            # 상태 업데이트
             try: row_unpaid = float(data_df.at[idx, "미수금액"])
             except: row_unpaid = 0
             
@@ -245,7 +241,7 @@ class DataManager:
                     new_status = "납품대기/입금완료"
                 data_df.at[idx, "입금완료일"] = last_pay_date
             else:
-                if current_status == "완료": new_status = "납품완료/입금대기"
+                if current_status == "완료": new_status = "납품완료/입금완료"
                 elif current_status == "납품대기/입금완료": new_status = current_status
                 else: new_status = current_status
             
@@ -470,3 +466,35 @@ class DataManager:
                         
         except Exception as e:
             print(f"생산 요청일 동기화 실패: {e}")
+
+    # [NEW] 생산 상태 매핑 정보 가져오기
+    def get_production_status_map(self):
+        """생산 요청 파일에서 (관리번호 -> 생산상태) 매핑 정보를 읽어옵니다."""
+        if not os.path.exists(self.production_request_path):
+            return {}
+
+        try:
+            # data_only=True로 수식이 아닌 값을 읽음
+            wb = openpyxl.load_workbook(self.production_request_path, data_only=True, read_only=True)
+            if "Data" not in wb.sheetnames:
+                return {}
+            
+            ws = wb["Data"]
+            status_map = {}
+            
+            # 2행부터 데이터가 있다고 가정 (헤더 제외)
+            # A열(0): 관리번호, N열(13): 생산상태
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                if not row or len(row) < 14: continue
+                
+                mgmt_no = str(row[0]).strip() if row[0] else None
+                prod_status = str(row[13]).strip() if row[13] else "-"
+                
+                if mgmt_no:
+                    status_map[mgmt_no] = prod_status
+            
+            wb.close()
+            return status_map
+        except Exception as e:
+            print(f"생산 상태 로드 실패: {e}")
+            return {}

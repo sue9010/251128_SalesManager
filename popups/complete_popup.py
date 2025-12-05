@@ -184,7 +184,7 @@ class CompletePopup(BasePopup):
         elif "취소" in status: self.status_badge.configure(fg_color=COLORS["danger"])
         else: self.status_badge.configure(fg_color=COLORS["primary"])
 
-        # [수정] 통화 정보 확인 및 포맷팅 적용
+        # 통화 정보 확인 및 포맷팅 적용
         currency = str(first.get("통화", "KRW")).upper()
         
         try: total = pd.to_numeric(rows["합계금액"], errors='coerce').sum()
@@ -250,6 +250,9 @@ class CompletePopup(BasePopup):
         for widget in self.files_scroll.winfo_children(): widget.destroy()
         has_files = False
         if self._add_file_row("주문서(발주서)", first.get("발주서경로")): has_files = True
+        
+        # [신규] 운송장 파일 추가
+        if self._add_file_row("운송장", first.get("운송장경로")): has_files = True
         
         client_name = str(first.get("업체명", ""))
         client_row = self.dm.df_clients[self.dm.df_clients["업체명"] == client_name]
