@@ -49,18 +49,18 @@ class DeliveryPopup(BasePopup):
         self.content_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
         self.content_frame.pack(fill="both", expand=True, pady=10)
         
-        # 좌측: 품목 리스트 (40%)
-        self.left_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10)
-        self.left_panel.pack(side="left", fill="both", expand=True, padx=(0, 10))
-        self.left_panel.pack_propagate(False)
+        # 좌측: 배송 정보 및 액션 (Fixed 400px)
+        self.shipping_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10, width=400)
+        self.shipping_panel.pack(side="left", fill="y", padx=(0, 10))
+        self.shipping_panel.pack_propagate(False)
+
+        # 우측: 품목 리스트 (Flexible)
+        self.items_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10)
+        self.items_panel.pack(side="right", fill="both", expand=True, padx=(10, 0))
+        self.items_panel.pack_propagate(False)
         
-        # 우측: 배송 정보 및 액션 (60%)
-        self.right_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10, width=400)
-        self.right_panel.pack(side="right", fill="y", padx=(10, 0))
-        self.right_panel.pack_propagate(False)
-        
-        self._setup_items_panel(self.left_panel)
-        self._setup_shipping_panel(self.right_panel)
+        self._setup_shipping_panel(self.shipping_panel)
+        self._setup_items_panel(self.items_panel)
         
         # 3. 하단 액션 바
         self._create_footer(self.main_container)

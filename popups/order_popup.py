@@ -164,7 +164,7 @@ class OrderPopup(BasePopup):
         
         # Row 2: 주문일자 | 발주서No
         date_entry = create_grid_input(info_grid, 2, 0, "주문일자", "entry_date")
-        date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
+        # date_entry.insert(0, datetime.now().strftime("%Y-%m-%d")) # __init__에서 처리됨
         create_grid_input(info_grid, 2, 1, "발주서No", "entry_po_no")
         
         # Row 3: 구분 | 통화
