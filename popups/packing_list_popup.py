@@ -6,17 +6,31 @@ from styles import COLORS, FONTS
 class PackingListPopup(ctk.CTkToplevel):
     def __init__(self, parent, data_manager, export_callback, initial_data):
         super().__init__(parent)
+        self.parent = parent
         self.dm = data_manager
         self.export_callback = export_callback
-        self.initial_data = initial_data # {client, mgmt_no, date, items: [...]}
+        self.initial_data = initial_data 
         
         self.title("Packing List 입력 - Sales Manager")
-        self.geometry("1100x600")
+        self.geometry("1200x600")
         self.configure(fg_color=COLORS["bg_dark"])
+        
+        self.transient(parent)
         self.attributes("-topmost", True)
         
         self.item_entries = []
         self._create_ui()
+        
+        self.update_idletasks()
+        width = self.winfo_width()
+        height = self.winfo_height()
+        x = (self.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.winfo_screenheight() // 2) - (height // 2)
+        self.geometry(f'+{x}+{y}')
+        
+        self.grab_set()
+        self.focus_set()
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def _create_ui(self):
         # 1. 상단 정보
@@ -36,8 +50,8 @@ class PackingListPopup(ctk.CTkToplevel):
         list_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"])
         list_frame.pack(fill="both", expand=True, padx=20, pady=5)
         
-        headers = ["C/No.", "Description", "Qty", "Unit", "N.W(kg)", "G.W(kg)", "L(cm)", "W(cm)", "H(cm)"]
-        widths = [60, 250, 50, 60, 80, 80, 60, 60, 60]
+        headers = ["C/No.", "Description", "Qty", "Unit", "N.W(kg)", "G.W(kg)", "L(cm)", "W(cm)", "H(cm)", "삭제"]
+        widths = [60, 250, 60, 60, 80, 80, 60, 60, 60, 50]
         
         header_frame = ctk.CTkFrame(list_frame, height=30, fg_color=COLORS["bg_dark"])
         header_frame.pack(fill="x")
@@ -49,13 +63,17 @@ class PackingListPopup(ctk.CTkToplevel):
         self.scroll_frame = ctk.CTkScrollableFrame(list_frame, fg_color="transparent")
         self.scroll_frame.pack(fill="both", expand=True)
 
-        # 아이템 로우 생성
+        # 초기 아이템 로우 생성
         for item in self.initial_data.get("items", []):
             self._add_item_row(item)
 
-        # 3. 하단 (Notes, 버튼)
+        # 3. 하단 (행 추가, Notes, 버튼)
         bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
         bottom_frame.pack(fill="x", padx=20, pady=10)
+        
+        ctk.CTkButton(bottom_frame, text="+ 행 추가", command=lambda: self._add_item_row(), 
+                      fg_color=COLORS["success"], hover_color="#26A65B",
+                      width=100, height=30, font=FONTS["main_bold"]).pack(anchor="w", pady=(0, 10))
         
         ctk.CTkLabel(bottom_frame, text="Notes:", font=FONTS["main_bold"]).pack(anchor="w")
         self.entry_notes = ctk.CTkEntry(bottom_frame, width=600)
@@ -68,80 +86,111 @@ class PackingListPopup(ctk.CTkToplevel):
                       fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"],
                       width=100, height=40, font=FONTS["header"]).pack(side="right", padx=5)
         
-        ctk.CTkButton(btn_frame, text="취소", command=self.destroy,
+        ctk.CTkButton(btn_frame, text="취소", command=self.on_close,
                       fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"],
                       width=80, height=40, font=FONTS["main"]).pack(side="right", padx=5)
 
-    def _add_item_row(self, item_data):
+    def _get_next_c_no(self):
+        if not self.item_entries:
+            return "1"
+        
+        last_entry = self.item_entries[-1]["widgets"]["c_no"]
+        try:
+            val = int(last_entry.get())
+            return str(val + 1)
+        except:
+            return "1"
+
+    def _add_item_row(self, item_data=None):
         row = ctk.CTkFrame(self.scroll_frame, fg_color="transparent", height=35)
         row.pack(fill="x", pady=2)
         
+        if item_data is None: item_data = {}
+        
         entries = {}
         
-        # C/No.
+        next_c_no = self._get_next_c_no()
+        current_c_no = item_data.get("c_no", next_c_no) 
+        
         ent_cno = ctk.CTkEntry(row, width=60)
         ent_cno.pack(side="left", padx=2)
-        ent_cno.insert(0, "1") # Default 1
+        ent_cno.insert(0, str(current_c_no))
         entries["c_no"] = ent_cno
         
-        # Description (Readonly)
-        desc_text = item_data.get("desc", "")
-        # 만약 desc가 비어있으면 모델명이나 품목명 사용
-        if not desc_text: desc_text = item_data.get("model", "")
+        # [수정] Description 값을 무조건 "Thermal camera set"으로 고정
+        desc_text = "Thermal camera set"
         
-        lbl_desc = ctk.CTkLabel(row, text=desc_text, width=250, anchor="w")
-        lbl_desc.pack(side="left", padx=2)
+        ent_desc = ctk.CTkEntry(row, width=250)
+        ent_desc.pack(side="left", padx=2)
+        ent_desc.insert(0, desc_text)
+        entries["desc"] = ent_desc
         
-        # Qty (Readonly or Editable? -> Readonly recommended as it comes from delivery popup)
-        qty_val = item_data.get("qty", 0)
-        lbl_qty = ctk.CTkLabel(row, text=f"{qty_val:g}", width=50)
-        lbl_qty.pack(side="left", padx=2)
+        qty_val = item_data.get("qty", "")
+        ent_qty = ctk.CTkEntry(row, width=60, justify="right")
+        ent_qty.pack(side="left", padx=2)
+        ent_qty.insert(0, f"{qty_val:g}" if isinstance(qty_val, (int, float)) else str(qty_val))
+        entries["qty"] = ent_qty
         
-        # Unit
         ent_unit = ctk.CTkEntry(row, width=60)
         ent_unit.pack(side="left", padx=2)
-        ent_unit.insert(0, "SET")
+        ent_unit.insert(0, str(item_data.get("unit", "SET")))
         entries["unit"] = ent_unit
         
-        # N.W
         ent_nw = ctk.CTkEntry(row, width=80)
         ent_nw.pack(side="left", padx=2)
+        ent_nw.insert(0, str(item_data.get("net_weight", "")))
         entries["net_weight"] = ent_nw
         
-        # G.W
         ent_gw = ctk.CTkEntry(row, width=80)
         ent_gw.pack(side="left", padx=2)
+        ent_gw.insert(0, str(item_data.get("gross_weight", "")))
         entries["gross_weight"] = ent_gw
         
-        # Size L, W, H
         ent_l = ctk.CTkEntry(row, width=60)
         ent_l.pack(side="left", padx=2)
+        ent_l.insert(0, str(item_data.get("size_l", "")))
         entries["size_l"] = ent_l
         
         ent_w = ctk.CTkEntry(row, width=60)
         ent_w.pack(side="left", padx=2)
+        ent_w.insert(0, str(item_data.get("size_w", "")))
         entries["size_w"] = ent_w
         
         ent_h = ctk.CTkEntry(row, width=60)
         ent_h.pack(side="left", padx=2)
+        ent_h.insert(0, str(item_data.get("size_h", "")))
         entries["size_h"] = ent_h
         
-        self.item_entries.append({
+        btn_del = ctk.CTkButton(row, text="X", width=40, height=28,
+                                fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"],
+                                command=lambda r=row: self._remove_row(r))
+        btn_del.pack(side="left", padx=5)
+        
+        entry_obj = {
+            "row_widget": row,
             "widgets": entries,
-            "data": item_data
-        })
+            "data": item_data 
+        }
+        self.item_entries.append(entry_obj)
+
+    def _remove_row(self, row_widget):
+        self.item_entries = [e for e in self.item_entries if e["row_widget"] != row_widget]
+        row_widget.destroy()
 
     def on_export(self):
-        # 데이터 수집
         pl_items = []
         for row in self.item_entries:
             w = row["widgets"]
             d = row["data"]
             
+            try:
+                qty = float(w["qty"].get().replace(",", ""))
+            except: qty = 0
+            
             pl_items.append({
                 "c_no": w["c_no"].get(),
-                "desc": d.get("desc", "") if d.get("desc") else d.get("model", ""),
-                "qty": d.get("qty", 0),
+                "desc": w["desc"].get(), 
+                "qty": qty,              
                 "unit": w["unit"].get(),
                 "net_weight": w["net_weight"].get(),
                 "gross_weight": w["gross_weight"].get(),
@@ -154,5 +203,19 @@ class PackingListPopup(ctk.CTkToplevel):
             
         notes = self.entry_notes.get()
         
-        self.export_callback(pl_items, notes)
+        success, msg = self.export_callback(pl_items, notes)
+        
+        if success:
+            messagebox.showinfo("성공", f"PL이 생성되었습니다.\n{msg}", parent=self)
+            self.on_close()
+        else:
+            messagebox.showerror("실패", msg, parent=self)
+            self.attributes("-topmost", True) 
+
+    def on_close(self):
+        if self.parent:
+            try:
+                self.parent.attributes("-topmost", True)
+                self.parent.lift()
+            except: pass
         self.destroy()

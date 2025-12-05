@@ -11,12 +11,11 @@ import pandas as pd
 
 from config import Config
 from popups.base_popup import BasePopup
-from popups.packing_list_popup import PackingListPopup # [신규] import
+from popups.packing_list_popup import PackingListPopup 
 from styles import COLORS, FONTS
 from export_manager import ExportManager 
 
 class DeliveryPopup(BasePopup):
-    # ... (기존 __init__ 등 코드는 유지) ...
     def __init__(self, parent, data_manager, refresh_callback, mgmt_nos):
         if isinstance(mgmt_nos, list):
             self.mgmt_nos = mgmt_nos
@@ -446,7 +445,6 @@ class DeliveryPopup(BasePopup):
             messagebox.showerror("실패", result, parent=self)
         self.attributes("-topmost", True)
 
-    # [NEW] PL 발행 기능 구현 (PackingListPopup 연결)
     def export_pl(self):
         client_name = self.entry_client.get()
         if not client_name:
@@ -462,7 +460,6 @@ class DeliveryPopup(BasePopup):
             self.attributes("-topmost", True)
             return
         
-        # 품목 정보 수집 (출고 수량이 > 0인 항목만)
         items = []
         for index, item_info in self.item_widgets_map.items():
             entry_widget = item_info["entry"]
@@ -496,14 +493,8 @@ class DeliveryPopup(BasePopup):
             "items": items
         }
 
-        # 콜백 함수: PackingListPopup에서 발행 버튼 누르면 실행됨
+        # [수정] 콜백 함수는 단순히 결과만 반환하도록 수정 (메시지 처리는 팝업에서)
         def on_pl_confirm(pl_items, notes):
-            # ExportManager 호출
-            # pl_items에는 PackingListPopup에서 입력한 무게/크기 정보가 포함됨
-            
-            # po_no도 order_info에 포함 (첫번째 아이템 기준 or items에서 취합)
-            # 여기서는 export_pl_to_pdf 내부에서 items의 po_no를 취합하도록 되어있으므로
-            # order_info에는 대표 po_no를 넘김
             first_po = items[0].get("po_no", "") if items else ""
             
             order_info = {
@@ -517,16 +508,10 @@ class DeliveryPopup(BasePopup):
             success, result = self.export_manager.export_pl_to_pdf(
                 client_row.iloc[0], order_info, pl_items
             )
-            
-            self.attributes("-topmost", False)
-            if success:
-                messagebox.showinfo("성공", f"PL이 생성되었습니다.\n{result}", parent=self)
-            else:
-                messagebox.showerror("실패", result, parent=self)
-            self.attributes("-topmost", True)
+            return success, result # 결과 반환
 
-        # PackingListPopup 열기
-        # self를 parent로 지정하여 모달처럼 동작하게 함
+        # [수정] Topmost 잠시 해제 후 팝업 호출
+        self.attributes("-topmost", False)
         PackingListPopup(self, self.dm, on_pl_confirm, initial_data)
 
     def save(self):
