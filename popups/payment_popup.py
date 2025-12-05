@@ -25,7 +25,6 @@ class PaymentPopup(BasePopup):
             self.destroy()
             return
             
-        self.full_paths = {}
         super().__init__(parent, data_manager, refresh_callback, popup_title="수금", mgmt_no=self.mgmt_nos[0])
         self.geometry("1500x850")
 
@@ -107,16 +106,6 @@ class PaymentPopup(BasePopup):
         self.entry_file_remit, _, _ = self.create_file_input_row(parent, "송금상세(Remittance)", "송금상세경로")
         
         # DnD Setup
-        try:
-            def hook_dnd():
-                if self.entry_file_foreign.winfo_exists():
-                    windnd.hook_dropfiles(self.entry_file_foreign.winfo_id(), 
-                                          lambda f: self.on_drop(f, "외화입금증빙경로"))
-                    windnd.hook_dropfiles(self.entry_file_remit.winfo_id(), 
-                                          lambda f: self.on_drop(f, "송금상세경로"))
-            self.after(200, hook_dnd)
-        except Exception as e:
-            print(f"DnD Setup Error: {e}")
 
 
     def _setup_items_panel(self, parent):
@@ -408,9 +397,202 @@ class PaymentPopup(BasePopup):
             messagebox.showerror("실패", f"저장에 실패했습니다: {msg}", parent=self)
             self.attributes("-topmost", True)
     
+        try:
+            total_amount = pd.to_numeric(df_rows["합계금액"], errors='coerce').sum()
+            paid_amount = pd.to_numeric(df_rows["기수금액"], errors='coerce').sum()
+        except:
+            total_amount = 0
+            paid_amount = 0
+            
+        unpaid_amount = total_amount - paid_amount
+
+        self.lbl_total_amount.configure(text=f"{total_amount:,.0f}")
+        self.lbl_paid_amount.configure(text=f"{paid_amount:,.0f}")
+        self.lbl_unpaid_amount.configure(text=f"{unpaid_amount:,.0f}")
+        
+        self.entry_payment.delete(0, "end")
+        self.entry_payment.insert(0, f"{unpaid_amount:.0f}")
+
+
+    # ==========================================================================
+    # 저장 로직
+    # ==========================================================================
+    def save(self):
+        try:
+            payment_amount = float(self.entry_payment.get().replace(",", ""))
+        except ValueError:
+            messagebox.showerror("오류", "입금액은 숫자여야 합니다.", parent=self)
+            return
+
+        if payment_amount <= 0:
+            messagebox.showwarning("확인", "입금액이 0보다 커야 합니다.", parent=self)
+            return
+
+        payment_date = self.entry_pay_date.get()
+        try: current_user = getpass.getuser()
+        except: current_user = "Unknown"
+
+        # File Saving Logic
+        saved_paths = {}
+        target_dir = os.path.join(Config.DEFAULT_ATTACHMENT_ROOT, "입금")
+        
+        file_inputs = [
+            ("외화입금증빙경로", self.entry_file_foreign, "외화 입금"),
+            ("송금상세경로", self.entry_file_remit, "Remittance detail")
+        ]
+
+        for col, entry, prefix in file_inputs:
+            path = self.full_paths.get(col)
+            if not path: path = entry.get().strip()
+            
+            if path and os.path.exists(path):
+                if not os.path.exists(target_dir):
+                    try: os.makedirs(target_dir)
+                    except: pass
+                
+                try:
+                    client_name = self.dm.df_data.loc[self.dm.df_data["관리번호"] == self.mgmt_nos[0], "업체명"].values[0]
+                except: client_name = "Unknown"
+                
+                safe_client = "".join([c for c in str(client_name) if c.isalnum() or c in (' ', '_')]).strip()
+                ext = os.path.splitext(path)[1]
+                
+                new_name = f"{prefix}_{safe_client}_{self.mgmt_nos[0]}{ext}"
+                target_path = os.path.join(target_dir, new_name)
+                
+                if os.path.abspath(path) != os.path.abspath(target_path):
+                    try:
+                        shutil.copy2(path, target_path)
+                        saved_paths[col] = target_path
+                    except Exception as e:
+                        print(f"File copy error ({col}): {e}")
+                else:
+                    saved_paths[col] = path
+            else:
+                saved_paths[col] = "" 
+
+        def update_logic(dfs):
+            mask = dfs["data"]["관리번호"].isin(self.mgmt_nos)
+            if not mask.any():
+                return False, "데이터를 찾을 수 없습니다."
+
+            indices = dfs["data"][mask].index
+            
+            # 1. 강제 재계산
+            for mgmt_no in self.mgmt_nos:
+                self.dm.recalc_payment_status(dfs, mgmt_no)
+
+            # 2. 배치 처리용 집계
+            batch_summary = {}
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            remaining_payment = payment_amount
+
+            # 3. 미수금 차감 시뮬레이션
+            for idx in indices:
+                if remaining_payment <= 0: break
+                
+                mgmt_no = dfs["data"].at[idx, "관리번호"]
+                currency = str(dfs["data"].at[idx, "통화"]).upper()
+                threshold = 200 if currency != "KRW" else 5000
+                
+                if mgmt_no not in batch_summary:
+                    batch_summary[mgmt_no] = {'deposit': 0, 'fee': 0, 'currency': currency}
+
+                try: unpaid = float(dfs["data"].at[idx, "미수금액"])
+                except: unpaid = 0
+                
+                if unpaid > 0:
+                    actual_pay = 0
+                    fee_pay = 0
+                    
+                    if remaining_payment >= unpaid:
+                        actual_pay = unpaid
+                    else:
+                        diff = unpaid - remaining_payment
+                        if diff <= threshold:
+                            item_name = str(dfs["data"].at[idx, "품목명"])
+                            if messagebox.askyesno("수수료 처리 확인", 
+                                                   f"[{item_name}] 항목의 잔액이 {diff:,.0f} ({currency}) 남습니다.\n"
+                                                   f"이를 수수료로 처리하여 '완납' 하시겠습니까?"):
+                                actual_pay = remaining_payment
+                                fee_pay = diff
+                            else:
+                                actual_pay = remaining_payment
+                        else:
+                            actual_pay = remaining_payment
+
+                    batch_summary[mgmt_no]['deposit'] += actual_pay
+                    batch_summary[mgmt_no]['fee'] += fee_pay
+                    
+                    remaining_payment -= actual_pay
+
+            # 4. Payment 시트에 이력 기록
+            new_payment_records = []
+            
+            for mgmt_no, summary in batch_summary.items():
+                if summary['deposit'] > 0:
+                    record = {
+                        "일시": now_str,
+                        "관리번호": mgmt_no,
+                        "구분": "입금",
+                        "입금액": summary['deposit'],
+                        "통화": summary['currency'],
+                        "작업자": current_user,
+                        "비고": f"일괄 입금 ({payment_date})"
+                    }
+                    if "외화입금증빙경로" in saved_paths:
+                        record["외화입금증빙경로"] = saved_paths["외화입금증빙경로"]
+                    if "송금상세경로" in saved_paths:
+                        record["송금상세경로"] = saved_paths["송금상세경로"]
+                        
+                    new_payment_records.append(record)
+                
+                if summary['fee'] > 0:
+                    new_payment_records.append({
+                        "일시": now_str,
+                        "관리번호": mgmt_no,
+                        "구분": "수수료/조정",
+                        "입금액": summary['fee'],
+                        "통화": summary['currency'],
+                        "작업자": current_user,
+                        "비고": "잔액 탕감 처리"
+                    })
+
+            if new_payment_records:
+                payment_df_new = pd.DataFrame(new_payment_records)
+                dfs["payment"] = pd.concat([dfs["payment"], payment_df_new], ignore_index=True)
+
+            # 5. 최종 재계산
+            for mgmt_no in self.mgmt_nos:
+                self.dm.recalc_payment_status(dfs, mgmt_no)
+
+            mgmt_str = self.mgmt_nos[0]
+            if len(self.mgmt_nos) > 1: mgmt_str += f" 외 {len(self.mgmt_nos)-1}건"
+            
+            file_log = ""
+            if saved_paths.get("외화입금증빙경로"): file_log += " / 외화증빙"
+            if saved_paths.get("송금상세경로"): file_log += " / 송금상세"
+            
+            log_msg = f"번호 [{mgmt_str}] / 입금액 [{payment_amount:,.0f}] 처리{file_log} (재계산 완료)"
+            new_log = self.dm._create_log_entry("수금 처리", log_msg)
+            dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
+
+            return True, ""
+
+        success, msg = self.dm._execute_transaction(update_logic)
+
+        if success:
+            self.attributes("-topmost", False)
+            messagebox.showinfo("성공", "수금 처리가 완료되었습니다.", parent=self)
+            self.refresh_callback()
+            self.destroy()
+        else:
+            self.attributes("-topmost", False)
+            messagebox.showerror("실패", f"저장에 실패했습니다: {msg}", parent=self)
+            self.attributes("-topmost", True)
+    
     # BasePopup 추상 메서드 구현 (사용 안함)
     def _generate_new_id(self): pass
     def delete(self): pass
-    def _on_client_select(self, client_name): pass 
-    def _calculate_totals(self): pass
-    def _load_clients(self): pass
+    def _on_client_select(self, client_name): pass

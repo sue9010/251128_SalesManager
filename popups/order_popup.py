@@ -16,7 +16,6 @@ from export_manager import ExportManager
 
 class OrderPopup(BasePopup):
     def __init__(self, parent, data_manager, refresh_callback, mgmt_no=None, copy_mode=False):
-        self.full_paths = {}
         self.export_manager = ExportManager()
         
         self.copy_mode = copy_mode
@@ -188,14 +187,6 @@ class OrderPopup(BasePopup):
         # 발주서 파일 입력 (Standardized UI)
         self.entry_order_file, _, _ = self.create_file_input_row(main_frame, "발주서 파일", "발주서경로")
 
-        # DnD 설정
-        try:
-            def hook_dnd():
-                if self.entry_order_file.winfo_exists():
-                    windnd.hook_dropfiles(self.entry_order_file.winfo_id(), self.on_drop)
-            self.after(200, hook_dnd)
-        except Exception as e:
-            print(f"DnD Setup Error: {e}")
 
 
         
@@ -299,21 +290,6 @@ class OrderPopup(BasePopup):
         
         self.title(f"주문 복사 등록 (원본: {self.copy_src_no}) - Sales Manager")
 
-    # ==========================================================================
-    # 파일 및 DnD
-    # ==========================================================================
-    def update_file_entry(self, col_name, full_path):
-        if not full_path: return
-        self.full_paths[col_name] = full_path
-        if col_name == "발주서경로" and self.entry_order_file:
-            self.entry_order_file.delete(0, "end")
-            self.entry_order_file.insert(0, os.path.basename(full_path))
-
-    def on_drop(self, filenames):
-        if filenames:
-            try: file_path = filenames[0].decode('mbcs')
-            except: file_path = filenames[0].decode('utf-8', errors='ignore')
-            self.update_file_entry("발주서경로", file_path)
 
 
     # ==========================================================================
@@ -373,11 +349,6 @@ class OrderPopup(BasePopup):
 
 
     # BasePopup 추상 메서드 구현 (사용 안함)
-    def _create_top_frame(self): pass
-    def _create_items_frame(self): pass
-    def _create_bottom_frame(self): pass
-    def _create_files_frame(self): pass
-    def _create_action_buttons(self): pass
     def _generate_new_id(self): 
         # BasePopup에서 호출하는 경우를 대비해 구현
         today_str = datetime.now().strftime("%y%m%d")

@@ -23,6 +23,8 @@ class BasePopup(ctk.CTkToplevel):
         self.geometry("1100x750")
         
         self.item_rows = []
+        self.file_entries = {} # {col_name: entry_widget}
+        self.full_paths = {}   # {col_name: full_path}
         
         self._create_widgets()
 
@@ -126,7 +128,44 @@ class BasePopup(ctk.CTkToplevel):
                       fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"])
         btn_delete.pack(side="left", padx=(5, 0))
         
+        # Register for tracking and DnD
+        self.file_entries[col_name] = entry
+        self._setup_dnd_hook(entry, col_name)
+        
         return entry, btn_open, btn_delete
+
+    def _setup_dnd_hook(self, widget, col_name):
+        """Waits for widget to exist, then hooks DnD"""
+        def hook_wait():
+            try:
+                if widget.winfo_exists():
+                    import windnd
+                    windnd.hook_dropfiles(widget.winfo_id(), lambda filenames: self.on_drop(filenames, col_name))
+                else:
+                    self.after(200, hook_wait)
+            except Exception as e:
+                print(f"DnD Hook Error ({col_name}): {e}")
+        self.after(200, hook_wait)
+
+    def update_file_entry(self, col_name, full_path):
+        """Updates full_paths and the UI entry widget."""
+        if not full_path: return
+        
+        self.full_paths[col_name] = full_path
+        
+        if col_name in self.file_entries:
+            entry = self.file_entries[col_name]
+            try:
+                entry.delete(0, "end")
+                entry.insert(0, os.path.basename(full_path))
+            except: pass
+
+    def on_drop(self, filenames, col_name):
+        """Common DnD handler."""
+        if filenames:
+            try: file_path = filenames[0].decode('mbcs')
+            except: file_path = filenames[0].decode('utf-8', errors='ignore')
+            self.update_file_entry(col_name, file_path)
 
     def open_file(self, entry_widget, col_name):
         path = self.full_paths.get(col_name) if hasattr(self, "full_paths") else None
