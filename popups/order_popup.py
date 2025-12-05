@@ -155,9 +155,14 @@ class OrderPopup(BasePopup):
         ctk.CTkLabel(f_client, text="고객사", width=60, anchor="w", font=FONTS["main"], text_color=COLORS["text_dim"]).pack(side="left")
         from popups.autocomplete_entry import AutocompleteEntry
         self.entry_client = AutocompleteEntry(f_client, font=FONTS["main"], height=28,
-                                            completevalues=self.dm.df_clients["업체명"].unique().tolist())
+                                            completevalues=self.dm.df_clients["업체명"].unique().tolist(),
+                                            command=self._on_client_select)
         self.entry_client.pack(side="left", fill="x", expand=True)
         self.entry_client.set_completion_list(self.dm.df_clients["업체명"].unique().tolist())
+        
+        # 직접 입력 후 포커스 아웃/엔터 시에도 업데이트
+        self.entry_client.bind("<FocusOut>", lambda e: self._on_client_select(self.entry_client.get()))
+        self.entry_client.bind("<Return>", lambda e: self._on_client_select(self.entry_client.get()))
 
         # Row 1: 프로젝트 (Full Width)
         create_grid_input(info_grid, 1, 0, "프로젝트", "entry_project").master.grid(columnspan=2)
