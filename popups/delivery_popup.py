@@ -1,11 +1,15 @@
+import os
+import shutil
 import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox
-import getpass # [신규] 사용자명 가져오기
+import getpass
+import windnd
 
 import customtkinter as ctk
 import pandas as pd
 
+from config import Config
 from popups.base_popup import BasePopup
 from styles import COLORS, FONTS
 
@@ -21,13 +25,15 @@ class DeliveryPopup(BasePopup):
             self.destroy()
             return
 
-        self.item_widgets_map = {} 
+        self.item_widgets_map = {}
+        self.full_paths = {} # 파일 경로 저장
+        
         super().__init__(parent, data_manager, refresh_callback, popup_title="납품", mgmt_no=self.mgmt_nos[0])
 
     def _create_widgets(self):
         super()._create_widgets()
         self._create_delivery_specific_widgets()
-        self.geometry("900x750")
+        self.geometry("900x800")
 
     def _create_items_frame(self):
         list_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"])
@@ -47,6 +53,7 @@ class DeliveryPopup(BasePopup):
         self.scroll_items.pack(fill="both", expand=True)
 
     def _create_delivery_specific_widgets(self):
+        # 상단 입력 필드들 (파일 업로드 부분 제거됨)
         self.lbl_delivery_date = ctk.CTkLabel(self.top_frame, text="출고일", font=FONTS["main_bold"])
         self.entry_delivery_date = ctk.CTkEntry(self.top_frame, width=150)
         self.entry_delivery_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
@@ -57,6 +64,7 @@ class DeliveryPopup(BasePopup):
         self.lbl_invoice_no = ctk.CTkLabel(self.top_frame, text="송장번호", font=FONTS["main_bold"])
         self.entry_invoice_no = ctk.CTkEntry(self.top_frame, width=200)
 
+        # Grid 배치
         self.lbl_id.grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.entry_id.grid(row=0, column=1, padx=5, pady=5, sticky="w")
         
@@ -78,6 +86,7 @@ class DeliveryPopup(BasePopup):
         self.lbl_invoice_no.grid(row=2, column=4, padx=5, pady=5, sticky="w")
         self.entry_invoice_no.grid(row=2, column=5, padx=5, pady=5, sticky="w")
 
+        # 버튼 텍스트 변경 (저장 -> 납품 처리)
         try:
             widgets = self.winfo_children()
             if widgets:
@@ -87,6 +96,88 @@ class DeliveryPopup(BasePopup):
                         child.configure(text="납품 처리")
         except:
             pass
+
+    # [신규] 하단 프레임 오버라이드 (비고 아래에 파일 업로드 배치)
+    def _create_bottom_frame(self):
+        super()._create_bottom_frame() # 비고란 생성 (Row 0)
+        
+        # 파일 업로드 위젯 생성 (Row 1)
+        self.lbl_waybill_file = ctk.CTkLabel(self.input_grid, text="운송장:", font=FONTS["main"])
+        self.lbl_waybill_file.grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        
+        self.entry_waybill_file = ctk.CTkEntry(self.input_grid, width=300)
+        self.entry_waybill_file.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        
+        # 파일 버튼 프레임
+        self.file_btn_frame = ctk.CTkFrame(self.input_grid, fg_color="transparent")
+        self.file_btn_frame.grid(row=1, column=2, padx=5, pady=5, sticky="w")
+        
+        col_name = "운송장경로"
+        ctk.CTkButton(self.file_btn_frame, text="열기", width=50, 
+                      command=lambda: self.open_file(self.entry_waybill_file, col_name), 
+                      fg_color=COLORS["bg_medium"], text_color=COLORS["text"]).pack(side="left", padx=2)
+        
+        ctk.CTkButton(self.file_btn_frame, text="삭제", width=50, 
+                      command=lambda: self.clear_entry(self.entry_waybill_file, col_name), 
+                      fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left", padx=2)
+
+        # 드래그 앤 드롭 설정
+        try:
+            def hook_dnd():
+                if self.entry_waybill_file.winfo_exists():
+                    windnd.hook_dropfiles(self.entry_waybill_file.winfo_id(), self.on_drop)
+            self.after(100, hook_dnd)
+        except Exception as e:
+            print(f"DnD Error: {e}")
+
+    # 파일 관련 메서드들
+    def update_file_entry(self, col_name, full_path):
+        if not full_path: return
+        self.full_paths[col_name] = full_path
+        if col_name == "운송장경로" and self.entry_waybill_file:
+            self.entry_waybill_file.delete(0, "end")
+            self.entry_waybill_file.insert(0, os.path.basename(full_path))
+
+    def on_drop(self, filenames):
+        if filenames:
+            try: file_path = filenames[0].decode('mbcs')
+            except: file_path = filenames[0].decode('utf-8', errors='ignore')
+            self.update_file_entry("운송장경로", file_path)
+
+    def open_file(self, entry_widget, col_name):
+        path = self.full_paths.get(col_name)
+        if not path: path = entry_widget.get().strip()
+        
+        if path and os.path.exists(path):
+            try: os.startfile(path)
+            except Exception as e: messagebox.showerror("에러", f"파일을 열 수 없습니다.\n{e}", parent=self)
+        else:
+            messagebox.showwarning("경고", "파일 경로가 유효하지 않습니다.", parent=self)
+
+    def clear_entry(self, entry_widget, col_name):
+        path = self.full_paths.get(col_name)
+        if not path: path = entry_widget.get().strip()
+        if not path: return
+
+        is_managed = False
+        try:
+            abs_path = os.path.abspath(path)
+            abs_root = os.path.abspath(Config.DEFAULT_ATTACHMENT_ROOT)
+            if abs_path.startswith(abs_root): is_managed = True
+        except: pass
+
+        if is_managed:
+            if messagebox.askyesno("파일 삭제", f"정말 파일을 삭제하시겠습니까?\n(영구 삭제됨)", parent=self):
+                try:
+                    if os.path.exists(path): os.remove(path)
+                except Exception as e:
+                    messagebox.showerror("오류", f"삭제 실패: {e}", parent=self)
+                    return
+                entry_widget.delete(0, "end")
+                if col_name in self.full_paths: del self.full_paths[col_name]
+        else:
+            entry_widget.delete(0, "end")
+            if col_name in self.full_paths: del self.full_paths[col_name]
 
     def _load_data(self):
         df = self.dm.df_data
@@ -125,6 +216,11 @@ class DeliveryPopup(BasePopup):
             widget.delete(0, "end")
             widget.insert(0, val)
             widget.configure(state="readonly")
+        
+        # 기존 파일 경로 로드
+        if self.entry_waybill_file:
+            path = str(first.get("운송장경로", "")).replace("nan", "")
+            if path: self.update_file_entry("운송장경로", path)
 
         target_rows = rows[~rows["Status"].isin(["납품완료/입금대기", "완료", "취소", "보류"])]
         
@@ -200,9 +296,47 @@ class DeliveryPopup(BasePopup):
             messagebox.showinfo("정보", "처리할 품목(수량 > 0)이 없습니다.", parent=self)
             return
 
+        # 운송장 파일 처리 준비
+        waybill_path = ""
+        if self.entry_waybill_file:
+            waybill_path = self.full_paths.get("운송장경로", "")
+            if not waybill_path:
+                waybill_path = self.entry_waybill_file.get().strip()
+
         def update_logic(dfs):
             processed_items = []
-            new_delivery_records = [] # Delivery 시트에 추가할 내역들
+            new_delivery_records = []
+            final_waybill_path = "" # 실제 저장된 경로
+
+            # 1. 파일 저장 로직 (한 번만 수행)
+            client_name = self.entry_client.get().strip()
+            # 대표 관리번호 사용 (여러 개일 경우 첫 번째)
+            main_mgmt_no = self.mgmt_nos[0]
+            
+            if waybill_path and os.path.exists(waybill_path):
+                target_dir = os.path.join(Config.DEFAULT_ATTACHMENT_ROOT, "운송장")
+                if not os.path.exists(target_dir):
+                    try: os.makedirs(target_dir)
+                    except Exception as e: print(f"Folder Create Error: {e}")
+                
+                ext = os.path.splitext(waybill_path)[1]
+                safe_client = "".join([c for c in client_name if c.isalnum() or c in (' ', '_')]).strip()
+                # 파일명: 운송장_업체명_관리번호.ext
+                new_filename = f"운송장_{safe_client}_{main_mgmt_no}{ext}"
+                target_path = os.path.join(target_dir, new_filename)
+                
+                # 경로가 다르면 복사
+                if os.path.abspath(waybill_path) != os.path.abspath(target_path):
+                    try:
+                        shutil.copy2(waybill_path, target_path)
+                        final_waybill_path = target_path
+                    except Exception as e:
+                        return False, f"운송장 파일 복사 실패: {e}"
+                else:
+                    final_waybill_path = waybill_path
+            elif waybill_path:
+                 # 파일이 존재하지 않지만 텍스트가 있는 경우 (삭제된 경우 등)
+                 final_waybill_path = ""
 
             for req in update_requests:
                 idx = req["idx"]
@@ -226,7 +360,7 @@ class DeliveryPopup(BasePopup):
                 try: tax_rate = float(str(row_data.get("세율(%)", 0)).replace(",", "")) / 100
                 except: tax_rate = 0
 
-                # 1. Delivery 시트에 내역 기록
+                # Delivery 시트에 내역 기록
                 new_delivery_records.append({
                     "일시": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "출고일": delivery_date,
@@ -239,7 +373,7 @@ class DeliveryPopup(BasePopup):
                     "비고": "일괄 납품 처리"
                 })
 
-                # 2. Data 시트 업데이트 (상태 변경 및 행 분할)
+                # Data 시트 업데이트
                 current_status = str(row_data.get("Status", ""))
                 if current_status == "납품대기/입금완료":
                     new_status = "완료"
@@ -252,12 +386,14 @@ class DeliveryPopup(BasePopup):
                     dfs["data"].at[idx, "출고일"] = delivery_date
                     dfs["data"].at[idx, "송장번호"] = invoice_no
                     dfs["data"].at[idx, "운송방법"] = shipping_method
+                    dfs["data"].at[idx, "운송장경로"] = final_waybill_path # 경로 저장
+                    
                     total_amt = float(str(row_data.get("합계금액", 0)).replace(",", ""))
                     dfs["data"].at[idx, "미수금액"] = total_amt
                     
                 # Case 2: 부분 출고 (행 분할)
                 else: 
-                    # 원본 행(잔여) 업데이트
+                    # 원본 행(잔여) 업데이트 - 운송장 경로는 부분 출고된 쪽에만 저장
                     remain_qty = db_qty - deliver_qty
                     remain_supply = remain_qty * price
                     remain_tax = remain_supply * tax_rate
@@ -281,6 +417,7 @@ class DeliveryPopup(BasePopup):
                     new_row["출고일"] = delivery_date
                     new_row["송장번호"] = invoice_no
                     new_row["운송방법"] = shipping_method
+                    new_row["운송장경로"] = final_waybill_path # 경로 저장
                     
                     new_df = pd.DataFrame([new_row])
                     dfs["data"] = pd.concat([dfs["data"], new_df], ignore_index=True)
@@ -290,17 +427,18 @@ class DeliveryPopup(BasePopup):
             if not processed_items:
                 return False, "처리 가능한 항목이 없거나 데이터가 변경되었습니다."
 
-            # 3. Delivery 시트에 저장 (한 번에)
+            # Delivery 시트에 저장
             if new_delivery_records:
                 delivery_df_new = pd.DataFrame(new_delivery_records)
                 dfs["delivery"] = pd.concat([dfs["delivery"], delivery_df_new], ignore_index=True)
 
-            # 4. 로그 기록
+            # 로그 기록
             mgmt_str = self.mgmt_nos[0]
             if len(self.mgmt_nos) > 1:
                 mgmt_str += f" 외 {len(self.mgmt_nos)-1}건"
             
-            log_msg = f"번호 [{mgmt_str}] 납품 처리 / {', '.join(processed_items)} (Delivery 기록됨)"
+            file_log = " / 운송장 첨부" if final_waybill_path else ""
+            log_msg = f"번호 [{mgmt_str}] 납품 처리 / {', '.join(processed_items)}{file_log} (Delivery 기록됨)"
             new_log = self.dm._create_log_entry("납품 처리", log_msg)
             dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
             return True, ""
