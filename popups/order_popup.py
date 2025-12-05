@@ -12,6 +12,7 @@ from popups.base_popup import BasePopup
 from styles import COLORS, FONTS
 from config import Config
 from export_manager import ExportManager
+from popups.client_popup import ClientPopup
 
 class OrderPopup(BasePopup):
     def __init__(self, parent, data_manager, refresh_callback, mgmt_no=None, copy_mode=False):
@@ -386,7 +387,23 @@ class OrderPopup(BasePopup):
         for row in self.item_rows: self.calculate_row(row)
 
     def _on_client_select(self, client_name):
+        if not client_name: return
+
         df = self.dm.df_clients
+        if client_name not in df["업체명"].values:
+            self.attributes("-topmost", False)
+            if messagebox.askyesno("알림", f"'{client_name}'은(는) 등록되지 않은 업체입니다.\n신규 등록하시겠습니까?", parent=self):
+                self.attributes("-topmost", True)
+                def on_client_registered():
+                    self._load_clients()
+                    self.entry_client.set_completion_list(self.dm.df_clients["업체명"].unique().tolist())
+                    self._on_client_select(client_name)
+                
+                ClientPopup(self, self.dm, on_client_registered, client_name=None)
+            else:
+                self.attributes("-topmost", True)
+            return
+
         row = df[df["업체명"] == client_name]
         if not row.empty:
             currency = row.iloc[0].get("통화", "KRW")
