@@ -33,137 +33,323 @@ class DeliveryPopup(BasePopup):
         
         self.current_delivery_no = ""
         
-        super().__init__(parent, data_manager, refresh_callback, popup_title="납품", mgmt_no=self.mgmt_nos[0])
+        super().__init__(parent, data_manager, refresh_callback, popup_title="납품 처리", mgmt_no=self.mgmt_nos[0])
 
     def _create_widgets(self):
-        super()._create_widgets()
-        self._create_delivery_specific_widgets()
-        self.geometry("1000x800") 
-
-    def _create_items_frame(self):
-        list_frame = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"])
-        list_frame.pack(fill="both", expand=True, padx=20, pady=5)
-
-        headers = ["품명", "모델명", "시리얼 번호", "잔여 수량", "출고 수량"]
-        widths = [200, 200, 150, 100, 100]
+        self.configure(fg_color=COLORS["bg_dark"])
+        self.geometry("1100x850") # 넓은 화면 사용
         
-        header_frame = ctk.CTkFrame(list_frame, height=30, fg_color=COLORS["bg_dark"])
-        header_frame.pack(fill="x")
+        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_container.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # 1. 헤더 (Compact)
+        self._create_header(self.main_container)
+        
+        # 2. 메인 콘텐츠 (Split View)
+        self.content_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.content_frame.pack(fill="both", expand=True, pady=10)
+        
+        # 좌측: 품목 리스트 (40%)
+        self.left_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10)
+        self.left_panel.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        self.left_panel.pack_propagate(False)
+        
+        # 우측: 배송 정보 및 액션 (60%)
+        self.right_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10, width=400)
+        self.right_panel.pack(side="right", fill="y", padx=(10, 0))
+        self.right_panel.pack_propagate(False)
+        
+        self._setup_items_panel(self.left_panel)
+        self._setup_shipping_panel(self.right_panel)
+        
+        # 3. 하단 액션 바
+        self._create_footer(self.main_container)
+
+    def _create_header(self, parent):
+        header_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        header_frame.pack(fill="x", pady=(0, 10))
+        
+        # 상단: ID 및 상태
+        top_row = ctk.CTkFrame(header_frame, fg_color="transparent")
+        top_row.pack(fill="x", anchor="w")
+        
+        self.lbl_id = ctk.CTkLabel(top_row, text="MGMT-000000", font=FONTS["main"], text_color=COLORS["text_dim"])
+        self.lbl_id.pack(side="left")
+        
+        self.status_badge = ctk.CTkLabel(top_row, text="납품 대기", font=FONTS["small"], 
+                                       fg_color=COLORS["primary"], text_color="white", corner_radius=10, width=80)
+        self.status_badge.pack(side="left", padx=10)
+        
+        # 프로젝트명 및 고객사
+        info_row = ctk.CTkFrame(header_frame, fg_color="transparent")
+        info_row.pack(fill="x", pady=(5, 0))
+        
+        self.lbl_project = ctk.CTkLabel(info_row, text="Project Name", font=FONTS["title"], anchor="w")
+        self.lbl_project.pack(side="left", padx=(0, 20))
+        
+        ctk.CTkLabel(info_row, text="|", font=FONTS["header"], text_color=COLORS["text_dim"]).pack(side="left", padx=10)
+        
+        self.lbl_client = ctk.CTkLabel(info_row, text="Client Name", font=FONTS["header"], text_color=COLORS["text_dim"], anchor="w")
+        self.lbl_client.pack(side="left", padx=10)
+
+        # [NEW] 추가 정보 (특이사항, 주문요청사항)
+        note_row = ctk.CTkFrame(header_frame, fg_color="transparent")
+        note_row.pack(fill="x", pady=(5, 0))
+        
+        self.lbl_client_note = ctk.CTkLabel(note_row, text="업체 특이사항: -", font=FONTS["main"], text_color=COLORS["danger"], anchor="w")
+        self.lbl_client_note.pack(side="left", padx=(0, 20))
+        
+        ctk.CTkLabel(note_row, text="|", font=FONTS["main"], text_color=COLORS["text_dim"]).pack(side="left", padx=10)
+
+        self.lbl_order_note = ctk.CTkLabel(note_row, text="주문 요청사항: -", font=FONTS["main"], text_color=COLORS["text"], anchor="w")
+        self.lbl_order_note.pack(side="left", padx=10)
+        
+        # 숨겨진 필드들 (로직 호환성 유지)
+        self.entry_client = ctk.CTkEntry(self, width=0) 
+        self.entry_project = ctk.CTkEntry(self, width=0) 
+
+    def _setup_items_panel(self, parent):
+        # 타이틀
+        ctk.CTkLabel(parent, text="납품 품목 리스트", font=FONTS["header"]).pack(anchor="w", padx=15, pady=15)
+        
+        # 헤더 - Width 조정 (150, 150, 100, 50, 70)
+        headers = ["품명", "모델명", "시리얼", "잔여", "출고"]
+        widths = [150, 150, 100, 50, 70]
+        
+        header_frame = ctk.CTkFrame(parent, height=35, fg_color=COLORS["bg_dark"])
+        header_frame.pack(fill="x", padx=15)
         
         for h, w in zip(headers, widths):
-            lbl = ctk.CTkLabel(header_frame, text=h, width=w, font=FONTS["small"])
-            lbl.pack(side="left", padx=2)
+            ctk.CTkLabel(header_frame, text=h, width=w, font=FONTS["main_bold"]).pack(side="left", padx=2)
+            
+        self.scroll_items = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        self.scroll_items.pack(fill="both", expand=True, padx=10, pady=5)
 
-        self.scroll_items = ctk.CTkScrollableFrame(list_frame, fg_color="transparent")
-        self.scroll_items.pack(fill="both", expand=True)
-
-    def _create_delivery_specific_widgets(self):
-        self.lbl_delivery_no = ctk.CTkLabel(self.top_frame, text="출고번호", font=FONTS["main_bold"], text_color=COLORS["primary"])
-        self.entry_delivery_no = ctk.CTkEntry(self.top_frame, width=150, state="readonly") 
-
-        self.lbl_delivery_date = ctk.CTkLabel(self.top_frame, text="출고일", font=FONTS["main_bold"])
-        self.entry_delivery_date = ctk.CTkEntry(self.top_frame, width=150)
-        self.entry_delivery_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
-
-        self.lbl_shipping_method = ctk.CTkLabel(self.top_frame, text="운송 방법", font=FONTS["main_bold"])
-        self.entry_shipping_method = ctk.CTkEntry(self.top_frame, width=150)
-
-        self.lbl_shipping_account = ctk.CTkLabel(self.top_frame, text="운송 계정", font=FONTS["main_bold"])
-        self.entry_shipping_account = ctk.CTkEntry(self.top_frame, width=150)
-
-        self.lbl_invoice_no = ctk.CTkLabel(self.top_frame, text="송장번호", font=FONTS["main_bold"])
-        self.entry_invoice_no = ctk.CTkEntry(self.top_frame, width=200)
-
-        self.btn_export_pi = ctk.CTkButton(self.top_frame, text="PI 발행", command=self.export_pi, width=80, height=32,
-                                        fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], text_color="white", font=FONTS["main_bold"])
+    def _setup_shipping_panel(self, parent):
+        # 스크롤 가능하게 변경 (내용이 많을 수 있음)
+        scroll_container = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_container.pack(fill="both", expand=True, padx=5, pady=5)
         
-        self.btn_export_ci = ctk.CTkButton(self.top_frame, text="CI 발행", command=self.export_ci, width=80, height=32,
-                                        fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], text_color="white", font=FONTS["main_bold"])
+        # 1. 배송 정보 섹션
+        ctk.CTkLabel(scroll_container, text="배송 정보", font=FONTS["header"]).pack(anchor="w", padx=10, pady=(10, 5))
         
-        self.btn_export_pl = ctk.CTkButton(self.top_frame, text="PL 발행", command=self.export_pl, width=80, height=32,
-                                        fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], text_color="white", font=FONTS["main_bold"])
+        input_frame = ctk.CTkFrame(scroll_container, fg_color="transparent")
+        input_frame.pack(fill="x", padx=10)
+        
+        def create_input(p, label, var_name):
+            f = ctk.CTkFrame(p, fg_color="transparent")
+            f.pack(fill="x", pady=2)
+            ctk.CTkLabel(f, text=label, width=80, anchor="w", font=FONTS["main"], text_color=COLORS["text_dim"]).pack(side="left")
+            entry = ctk.CTkEntry(f, height=30)
+            entry.pack(side="left", fill="x", expand=True)
+            setattr(self, var_name, entry)
+            return entry
 
-        # Row 0
-        self.lbl_id.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.entry_id.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        create_input(input_frame, "출고번호", "entry_delivery_no").configure(state="readonly")
         
-        self.lbl_client.grid(row=0, column=2, padx=5, pady=5, sticky="w")
-        self.entry_client.grid(row=0, column=3, padx=5, pady=5, sticky="w")
+        date_entry = create_input(input_frame, "출고일", "entry_delivery_date")
+        date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
         
-        self.lbl_status.grid(row=0, column=4, padx=5, pady=5, sticky="w")
-        self.combo_status.grid(row=0, column=5, padx=5, pady=5, sticky="w")
+        create_input(input_frame, "송장번호", "entry_invoice_no")
+        create_input(input_frame, "운송방법", "entry_shipping_method")
+        create_input(input_frame, "운송계정", "entry_shipping_account")
         
-        self.lbl_delivery_no.grid(row=0, column=6, padx=5, pady=5, sticky="w")
-        self.entry_delivery_no.grid(row=0, column=7, padx=5, pady=5, sticky="w")
+        ctk.CTkFrame(scroll_container, height=2, fg_color=COLORS["border"]).pack(fill="x", padx=10, pady=15)
 
-        # Row 1
-        self.lbl_project.grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        self.entry_project.grid(row=1, column=1, columnspan=4, padx=5, pady=5, sticky="ew") 
+        # 2. 서류 발행 섹션
+        ctk.CTkLabel(scroll_container, text="서류 발행", font=FONTS["header"]).pack(anchor="w", padx=10, pady=(0, 5))
         
-        self.btn_export_pi.grid(row=1, column=5, padx=2, pady=5, sticky="e")
-        self.btn_export_ci.grid(row=1, column=6, padx=2, pady=5, sticky="e")
-        self.btn_export_pl.grid(row=1, column=7, padx=2, pady=5, sticky="e")
+        doc_frame = ctk.CTkFrame(scroll_container, fg_color="transparent")
+        doc_frame.pack(fill="x", padx=10)
+        
+        def create_doc_btn(text, cmd, color=COLORS["bg_light"]):
+            ctk.CTkButton(doc_frame, text=text, command=cmd, height=35,
+                          fg_color=color, hover_color=COLORS["primary_hover"], 
+                          text_color=COLORS["text"], font=FONTS["main_bold"]).pack(fill="x", pady=3)
 
-        # Row 2
-        self.lbl_delivery_date.grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        self.entry_delivery_date.grid(row=2, column=1, padx=5, pady=5, sticky="w")
+        create_doc_btn("📄 PI (Proforma Invoice)", self.export_pi)
+        create_doc_btn("📄 CI (Commercial Invoice)", self.export_ci)
+        create_doc_btn("📄 PL (Packing List)", self.export_pl)
         
-        self.lbl_shipping_method.grid(row=2, column=2, padx=5, pady=5, sticky="w")
-        self.entry_shipping_method.grid(row=2, column=3, padx=5, pady=5, sticky="w")
-        
-        self.lbl_shipping_account.grid(row=2, column=4, padx=5, pady=5, sticky="w")
-        self.entry_shipping_account.grid(row=2, column=5, padx=5, pady=5, sticky="w")
+        ctk.CTkFrame(scroll_container, height=2, fg_color=COLORS["border"]).pack(fill="x", padx=10, pady=15)
 
-        self.lbl_invoice_no.grid(row=2, column=6, padx=5, pady=5, sticky="w")
-        self.entry_invoice_no.grid(row=2, column=7, padx=5, pady=5, sticky="w")
+        # 3. 운송장 첨부 섹션
+        ctk.CTkLabel(scroll_container, text="운송장 파일", font=FONTS["header"]).pack(anchor="w", padx=10, pady=(0, 5))
+        
+        self.drop_frame = ctk.CTkFrame(scroll_container, fg_color=COLORS["bg_dark"], border_width=1, border_color=COLORS["border"])
+        self.drop_frame.pack(fill="x", padx=10, pady=5, ipady=10)
+        
+        self.lbl_drop = ctk.CTkLabel(self.drop_frame, text="파일을 여기에 드래그하세요", text_color=COLORS["text_dim"])
+        self.lbl_drop.pack(pady=5)
+        
+        self.entry_waybill_file = ctk.CTkEntry(self.drop_frame, placeholder_text="파일 경로")
+        self.entry_waybill_file.pack(fill="x", padx=10, pady=5)
+        
+        btn_file_frame = ctk.CTkFrame(self.drop_frame, fg_color="transparent")
+        btn_file_frame.pack(fill="x", padx=10)
+        
+        ctk.CTkButton(btn_file_frame, text="열기", width=60, height=25,
+                      command=lambda: self.open_file(self.entry_waybill_file, "운송장경로"),
+                      fg_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="left", padx=2)
+                      
+        ctk.CTkButton(btn_file_frame, text="삭제", width=60, height=25,
+                      command=lambda: self.clear_entry(self.entry_waybill_file, "운송장경로"),
+                      fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="right", padx=2)
 
-        try:
-            widgets = self.winfo_children()
-            if widgets:
-                btn_frame = widgets[-1]
-                for child in btn_frame.winfo_children():
-                    if isinstance(child, ctk.CTkButton) and child.cget("text") == "저장":
-                        child.configure(text="납품 처리")
-        except:
-            pass
-
-    def _create_bottom_frame(self):
-        super()._create_bottom_frame()
-        
-        self.lbl_waybill_file = ctk.CTkLabel(self.input_grid, text="운송장:", font=FONTS["main"])
-        self.lbl_waybill_file.grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        
-        self.entry_waybill_file = ctk.CTkEntry(self.input_grid, width=300)
-        self.entry_waybill_file.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-        
-        self.file_btn_frame = ctk.CTkFrame(self.input_grid, fg_color="transparent")
-        self.file_btn_frame.grid(row=1, column=2, padx=5, pady=5, sticky="w")
-        
-        col_name = "운송장경로"
-        ctk.CTkButton(self.file_btn_frame, text="열기", width=50, 
-                      command=lambda: self.open_file(self.entry_waybill_file, col_name), 
-                      fg_color=COLORS["bg_medium"], text_color=COLORS["text"]).pack(side="left", padx=2)
-        
-        ctk.CTkButton(self.file_btn_frame, text="삭제", width=50, 
-                      command=lambda: self.clear_entry(self.entry_waybill_file, col_name), 
-                      fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left", padx=2)
-
+        # DnD 설정
         try:
             def hook_dnd():
-                if self.entry_waybill_file.winfo_exists():
-                    hwnd = self.entry_waybill_file.winfo_id()
+                if self.drop_frame.winfo_exists():
+                    hwnd = self.drop_frame.winfo_id()
                     windnd.hook_dropfiles(hwnd, self.on_drop)
-            
             self.after(200, hook_dnd)
         except Exception as e:
             print(f"DnD Setup Error: {e}")
 
+    def _create_footer(self, parent):
+        footer_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        footer_frame.pack(fill="x", pady=(10, 0))
+        
+        ctk.CTkButton(footer_frame, text="닫기", command=self.destroy, width=100, height=45,
+                      fg_color=COLORS["bg_light"], hover_color=COLORS["bg_light_hover"], 
+                      text_color=COLORS["text"]).pack(side="left")
+                      
+        ctk.CTkButton(footer_frame, text="납품 처리 (저장)", command=self.save, width=200, height=45,
+                      fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], 
+                      font=FONTS["header"]).pack(side="right")
+
+    def _load_data(self):
+        df = self.dm.df_data
+        rows = df[df["관리번호"].isin(self.mgmt_nos)].copy()
+        
+        if rows.empty:
+            messagebox.showinfo("정보", "데이터를 찾을 수 없습니다.", parent=self)
+            self.after(100, self.destroy)
+            return
+
+        serial_map = self.dm.get_serial_number_map()
+        first = rows.iloc[0]
+
+        # 헤더 정보 설정
+        mgmt_str = str(self.mgmt_nos[0])
+        if len(self.mgmt_nos) > 1:
+            mgmt_str += f" 외 {len(self.mgmt_nos)-1}건"
+        self.lbl_id.configure(text=f"No. {mgmt_str}")
+        
+        self.lbl_project.configure(text=first.get("프로젝트명", ""))
+        self.lbl_client.configure(text=first.get("업체명", ""))
+        
+        # [NEW] 특이사항 및 주문요청사항 로드
+        client_note = "-"
+        client_row = self.dm.df_clients[self.dm.df_clients["업체명"] == str(first.get("업체명", ""))]
+        if not client_row.empty:
+             val = client_row.iloc[0].get("특이사항", "-")
+             if str(val) != "nan" and val: client_note = str(val)
+        
+        order_note = str(first.get("주문요청사항", "-"))
+        if order_note == "nan" or not order_note: order_note = "-"
+        
+        self.lbl_client_note.configure(text=f"업체 특이사항: {client_note}")
+        self.lbl_order_note.configure(text=f"주문 요청사항: {order_note}")
+
+        # 더미 엔트리에 값 설정
+        self.entry_client.delete(0, "end")
+        self.entry_client.insert(0, str(first.get("업체명", "")))
+        self.entry_project.delete(0, "end")
+        self.entry_project.insert(0, str(first.get("프로젝트명", "")))
+
+        # 배송 정보 로드
+        client_name = str(first.get("업체명", ""))
+        default_shipping = self.dm.get_client_shipping_method(client_name)
+        if default_shipping:
+            self.entry_shipping_method.delete(0, "end")
+            self.entry_shipping_method.insert(0, default_shipping)
+
+        default_account = self.dm.get_client_shipping_account(client_name)
+        if default_account:
+            self.entry_shipping_account.delete(0, "end")
+            self.entry_shipping_account.insert(0, default_account)
+
+        # 운송장 파일
+        if self.entry_waybill_file:
+            path = str(first.get("운송장경로", "")).replace("nan", "")
+            if path: self.update_file_entry("운송장경로", path)
+
+        # 출고번호 생성 또는 로드
+        d_rows = self.dm.df_delivery[self.dm.df_delivery["관리번호"].isin(self.mgmt_nos)]
+        existing_no = ""
+        if not d_rows.empty:
+            last_row = d_rows.sort_values("일시", ascending=False).iloc[0]
+            existing_no = last_row.get("출고번호", "")
+        
+        if existing_no and existing_no != "-":
+            self.current_delivery_no = existing_no
+        else:
+            self.current_delivery_no = self.dm.generate_delivery_no()
+            
+        self.entry_delivery_no.configure(state="normal")
+        self.entry_delivery_no.delete(0, "end")
+        self.entry_delivery_no.insert(0, self.current_delivery_no)
+        self.entry_delivery_no.configure(state="readonly")
+
+        # 품목 리스트 로드
+        target_rows = rows[~rows["Status"].isin(["납품완료/입금대기", "완료", "취소", "보류"])]
+        
+        for index, row_data in target_rows.iterrows():
+            m_no = str(row_data.get("관리번호", "")).strip()
+            model = str(row_data.get("모델명", "")).strip()
+            desc = str(row_data.get("Description", "")).strip()
+            
+            serial = serial_map.get((m_no, model, desc), "-")
+            
+            item_data_with_serial = row_data.to_dict()
+            item_data_with_serial["시리얼번호"] = serial
+            
+            self._add_delivery_item_row(index, item_data_with_serial)
+
+    def _add_delivery_item_row(self, row_index, item_data):
+        row_frame = ctk.CTkFrame(self.scroll_items, fg_color="transparent", height=40)
+        row_frame.pack(fill="x", pady=2)
+
+        # 품명 - Width 조정 (150)
+        ctk.CTkLabel(row_frame, text=str(item_data.get("품목명", "")), width=150, anchor="w").pack(side="left", padx=2)
+        # 모델명 - Width 조정 (150)
+        ctk.CTkLabel(row_frame, text=str(item_data.get("모델명", "")), width=150, anchor="w").pack(side="left", padx=2)
+        
+        # 시리얼 - Width 조정 (100)
+        serial = str(item_data.get("시리얼번호", "-"))
+        ctk.CTkLabel(row_frame, text=serial, width=100, anchor="center", text_color=COLORS["primary"]).pack(side="left", padx=2)
+        
+        # 잔여 수량 - Width 조정 (50)
+        try:
+            raw_qty = str(item_data.get("수량", "0")).replace(",", "")
+            current_qty = float(raw_qty)
+        except ValueError:
+            current_qty = 0.0
+        ctk.CTkLabel(row_frame, text=f"{current_qty:g}", width=50).pack(side="left", padx=2)
+        
+        # 출고 수량 입력 (강조) - Width 조정 (70)
+        entry_deliver_qty = ctk.CTkEntry(row_frame, width=70, justify="center", 
+                                       fg_color=COLORS["bg_light"], border_color=COLORS["primary"])
+        entry_deliver_qty.pack(side="left", padx=2)
+        entry_deliver_qty.insert(0, f"{current_qty:g}")
+
+        self.item_widgets_map[row_index] = {
+            "current_qty": current_qty,
+            "entry": entry_deliver_qty,
+            "row_data": item_data
+        }
+
+    # ==========================================================================
+    # 파일 및 DnD 관련 메서드
+    # ==========================================================================
     def update_file_entry(self, col_name, full_path):
         if not full_path: return
         self.full_paths[col_name] = full_path
         if col_name == "운송장경로" and self.entry_waybill_file:
             self.entry_waybill_file.delete(0, "end")
             self.entry_waybill_file.insert(0, os.path.basename(full_path))
+            self.lbl_drop.configure(text=os.path.basename(full_path), text_color=COLORS["primary"])
 
     def on_drop(self, filenames):
         if filenames:
@@ -205,125 +391,16 @@ class DeliveryPopup(BasePopup):
                     messagebox.showerror("오류", f"삭제 실패: {e}", parent=self)
                     return
                 entry_widget.delete(0, "end")
+                self.lbl_drop.configure(text="파일을 여기에 드래그하세요", text_color=COLORS["text_dim"])
                 if col_name in self.full_paths: del self.full_paths[col_name]
         else:
             entry_widget.delete(0, "end")
+            self.lbl_drop.configure(text="파일을 여기에 드래그하세요", text_color=COLORS["text_dim"])
             if col_name in self.full_paths: del self.full_paths[col_name]
 
-    def _load_data(self):
-        df = self.dm.df_data
-        rows = df[df["관리번호"].isin(self.mgmt_nos)].copy()
-        
-        if rows.empty:
-            messagebox.showinfo("정보", "데이터를 찾을 수 없습니다.", parent=self)
-            self.after(100, self.destroy)
-            return
-
-        serial_map = self.dm.get_serial_number_map()
-
-        first = rows.iloc[0]
-
-        widgets_to_load = [
-            (self.entry_client, "업체명"),
-            (self.entry_project, "프로젝트명"),
-            (self.entry_req, "주문요청사항"),
-            (self.entry_note, "비고")
-        ]
-
-        self.entry_id.configure(state="normal")
-        self.entry_id.delete(0, "end")
-        if len(self.mgmt_nos) > 1:
-            self.entry_id.insert(0, f"{self.mgmt_nos[0]} 외 {len(self.mgmt_nos)-1}건")
-        else:
-            self.entry_id.insert(0, str(self.mgmt_nos[0]))
-        self.entry_id.configure(state="readonly")
-
-        self.combo_status.set(str(first.get("Status", "")))
-        self.combo_status.configure(state="disabled")
-
-        for widget, col in widgets_to_load:
-            if widget is None: continue
-            val = str(first.get(col, ""))
-            if val == "nan": val = ""
-            widget.configure(state="normal")
-            widget.delete(0, "end")
-            widget.insert(0, val)
-            widget.configure(state="readonly")
-        
-        client_name = str(first.get("업체명", ""))
-        
-        default_shipping = self.dm.get_client_shipping_method(client_name)
-        if default_shipping:
-            self.entry_shipping_method.delete(0, "end")
-            self.entry_shipping_method.insert(0, default_shipping)
-
-        default_account = self.dm.get_client_shipping_account(client_name)
-        if default_account:
-            self.entry_shipping_account.delete(0, "end")
-            self.entry_shipping_account.insert(0, default_account)
-
-        if self.entry_waybill_file:
-            path = str(first.get("운송장경로", "")).replace("nan", "")
-            if path: self.update_file_entry("운송장경로", path)
-
-        d_rows = self.dm.df_delivery[self.dm.df_delivery["관리번호"].isin(self.mgmt_nos)]
-        existing_no = ""
-        if not d_rows.empty:
-            last_row = d_rows.sort_values("일시", ascending=False).iloc[0]
-            existing_no = last_row.get("출고번호", "")
-        
-        if existing_no and existing_no != "-":
-            self.current_delivery_no = existing_no
-        else:
-            self.current_delivery_no = self.dm.generate_delivery_no()
-            
-        self.entry_delivery_no.configure(state="normal")
-        self.entry_delivery_no.delete(0, "end")
-        self.entry_delivery_no.insert(0, self.current_delivery_no)
-        self.entry_delivery_no.configure(state="readonly")
-
-        target_rows = rows[~rows["Status"].isin(["납품완료/입금대기", "완료", "취소", "보류"])]
-        
-        for index, row_data in target_rows.iterrows():
-            m_no = str(row_data.get("관리번호", "")).strip()
-            model = str(row_data.get("모델명", "")).strip()
-            desc = str(row_data.get("Description", "")).strip()
-            
-            serial = serial_map.get((m_no, model, desc), "-")
-            
-            item_data_with_serial = row_data.to_dict()
-            item_data_with_serial["시리얼번호"] = serial
-            
-            self._add_delivery_item_row(index, item_data_with_serial)
-
-    def _add_delivery_item_row(self, row_index, item_data):
-        row_frame = ctk.CTkFrame(self.scroll_items, fg_color="transparent", height=35)
-        row_frame.pack(fill="x", pady=2)
-
-        ctk.CTkLabel(row_frame, text=str(item_data.get("품목명", "")), width=200, anchor="w").pack(side="left", padx=2)
-        ctk.CTkLabel(row_frame, text=str(item_data.get("모델명", "")), width=200, anchor="w").pack(side="left", padx=2)
-        
-        serial = str(item_data.get("시리얼번호", "-"))
-        ctk.CTkLabel(row_frame, text=serial, width=150, anchor="center", text_color=COLORS["primary"]).pack(side="left", padx=2)
-        
-        try:
-            raw_qty = str(item_data.get("수량", "0")).replace(",", "")
-            current_qty = float(raw_qty)
-        except ValueError:
-            current_qty = 0.0
-
-        ctk.CTkLabel(row_frame, text=f"{current_qty:g}", width=100).pack(side="left", padx=2)
-        
-        entry_deliver_qty = ctk.CTkEntry(row_frame, width=100, justify="center")
-        entry_deliver_qty.pack(side="left", padx=2)
-        entry_deliver_qty.insert(0, f"{current_qty:g}")
-
-        self.item_widgets_map[row_index] = {
-            "current_qty": current_qty,
-            "entry": entry_deliver_qty,
-            "row_data": item_data
-        }
-
+    # ==========================================================================
+    # Export 메서드
+    # ==========================================================================
     def export_pi(self):
         client_name = self.entry_client.get()
         if not client_name:
@@ -493,7 +570,6 @@ class DeliveryPopup(BasePopup):
             "items": items
         }
 
-        # [수정] 콜백 함수는 단순히 결과만 반환하도록 수정 (메시지 처리는 팝업에서)
         def on_pl_confirm(pl_items, notes):
             first_po = items[0].get("po_no", "") if items else ""
             
@@ -508,12 +584,14 @@ class DeliveryPopup(BasePopup):
             success, result = self.export_manager.export_pl_to_pdf(
                 client_row.iloc[0], order_info, pl_items
             )
-            return success, result # 결과 반환
+            return success, result 
 
-        # [수정] Topmost 잠시 해제 후 팝업 호출
         self.attributes("-topmost", False)
         PackingListPopup(self, self.dm, on_pl_confirm, initial_data)
 
+    # ==========================================================================
+    # 저장 (납품 처리) 메서드
+    # ==========================================================================
     def save(self):
         delivery_date = self.entry_delivery_date.get()
         invoice_no = self.entry_invoice_no.get()
@@ -707,8 +785,15 @@ class DeliveryPopup(BasePopup):
         else:
             messagebox.showerror("실패", f"저장에 실패했습니다: {msg}", parent=self)
 
-    def _generate_new_id(self): pass
+    # BasePopup 추상 메서드 구현 (사용 안함)
+    def _create_top_frame(self): pass
+    def _create_items_frame(self): pass
+    def _create_bottom_frame(self): pass
+    def _create_files_frame(self): pass
+    def _create_action_buttons(self): pass
     def delete(self): pass
+    def _generate_new_id(self): pass
     def _add_item_row(self, item_data=None): pass
     def _calculate_totals(self): pass
     def _on_client_select(self, client_name): pass
+    def _load_clients(self): pass
