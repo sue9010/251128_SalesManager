@@ -19,12 +19,12 @@ class PopupManager:
     def open_client_popup(self, client_name=None):
         win = ClientPopup(self.parent, self.dm, self.refresh_callback, client_name)
 
-    # [수정] copy_mode 매개변수 추가
     def open_quote_popup(self, mgmt_no=None, copy_mode=False):
         win = QuotePopup(self.parent, self.dm, self.refresh_callback, mgmt_no, copy_mode=copy_mode)
 
-    def open_order_popup(self, mgmt_no=None):
-        win = OrderPopup(self.parent, self.dm, self.refresh_callback, mgmt_no)
+    # [수정] copy_mode 매개변수 추가
+    def open_order_popup(self, mgmt_no=None, copy_mode=False):
+        win = OrderPopup(self.parent, self.dm, self.refresh_callback, mgmt_no, copy_mode=copy_mode)
 
     def open_delivery_popup(self, mgmt_nos):
         win = DeliveryPopup(self.parent, self.dm, self.refresh_callback, mgmt_nos)

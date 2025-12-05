@@ -53,8 +53,11 @@ class OrderView(ctk.CTkFrame):
 
         self.tree.bind("<Double-1>", self.on_double_click)
         self.tree.bind("<Button-3>", self.on_right_click)
+        
+        # [수정] 우클릭 메뉴에 '주문 복사' 추가
         self.context_menu = tk.Menu(self, tearoff=0)
         self.context_menu.add_command(label="상세 정보 수정", command=self.on_edit)
+        self.context_menu.add_command(label="📋 주문 복사", command=self.on_context_copy) # [신규]
         self.context_menu.add_separator()
         self.context_menu.add_command(label="📦 생산/준비 시작", command=self.on_start_production)
         self.context_menu.add_command(label="🚚 납품 대기 처리", command=self.on_ready_delivery)
@@ -69,12 +72,7 @@ class OrderView(ctk.CTkFrame):
         style.map("Treeview", background=[('selected', COLORS["primary"][1])])
 
     def refresh_data(self):
-        # [수정] 생산 요청일 동기화 추가
-        # 1. SalesList 데이터 다시 로드 (최신 상태)
-        # (이미 상위나 다른 곳에서 로드되었을 수 있지만, 명시적으로 로드하거나 이미 로드된 데이터 사용)
-        # 여기서는 self.dm.df_data를 사용하기 전에 동기화를 수행합니다.
-        
-        self.dm.sync_production_dates() # 생산 요청 파일에서 날짜 가져와서 메모리 업데이트
+        self.dm.sync_production_dates()
         
         for item in self.tree.get_children(): self.tree.delete(item)
         df = self.dm.df_data
@@ -106,7 +104,7 @@ class OrderView(ctk.CTkFrame):
                 row.get("수량"), 
                 fmt_amt, 
                 row.get("수주일"), 
-                row.get("출고예정일"), # 동기화된 날짜가 표시됨
+                row.get("출고예정일"),
                 row.get("Status")
             ]
             self.tree.insert("", "end", values=values)
@@ -128,13 +126,22 @@ class OrderView(ctk.CTkFrame):
         mgmt_no = item["values"][0]
         self.pm.open_order_popup(mgmt_no)
 
+    # [신규] 주문 복사 핸들러
+    def on_context_copy(self):
+        selected = self.tree.selection()
+        if not selected: return
+        item = self.tree.item(selected[0])
+        mgmt_no = item["values"][0]
+        
+        # 팝업 매니저를 통해 복사 모드로 열기
+        self.pm.open_order_popup(mgmt_no, copy_mode=True)
+
     def on_start_production(self):
         self._update_status("생산중", "생산/준비 단계로 변경되었습니다.")
 
     def on_ready_delivery(self):
         self._update_status("납품대기", "납품 대기 상태로 변경되었습니다.\n'납품 관리' 메뉴에서 확인 가능합니다.")
 
-    # [수정] 트랜잭션 적용
     def _update_status(self, new_status, success_msg):
         selected = self.tree.selection()
         if not selected: return
@@ -144,7 +151,6 @@ class OrderView(ctk.CTkFrame):
         
         if messagebox.askyesno("상태 변경", f"관리번호 [{mgmt_no}] 및 관련 항목들의 상태를 '{new_status}'(으)로 변경하시겠습니까?"):
             
-            # 생산 요청 파일 내보내기 로직
             if new_status == "생산중":
                 df = self.dm.df_data
                 mask = df["관리번호"] == mgmt_no
@@ -166,7 +172,6 @@ class OrderView(ctk.CTkFrame):
                     
                     dfs["data"].loc[mask, "Status"] = new_status
                     
-                    # 로그
                     new_log = self.dm._create_log_entry(f"상태변경({new_status})", f"번호 [{mgmt_no}] - 일괄 처리")
                     dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
                     return True, ""

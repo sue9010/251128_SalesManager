@@ -11,19 +11,31 @@ import pandas as pd
 from popups.base_popup import BasePopup
 from styles import COLORS, FONTS
 from config import Config
-from export_manager import ExportManager # Import 추가 확인
+from export_manager import ExportManager
 
 class OrderPopup(BasePopup):
-    def __init__(self, parent, data_manager, refresh_callback, mgmt_no=None):
+    # [수정] copy_mode 매개변수 추가
+    def __init__(self, parent, data_manager, refresh_callback, mgmt_no=None, copy_mode=False):
         self.full_paths = {}
-        self.export_manager = ExportManager() # 인스턴스 생성
-        super().__init__(parent, data_manager, refresh_callback, popup_title="주문", mgmt_no=mgmt_no)
+        self.export_manager = ExportManager()
+        
+        self.copy_mode = copy_mode
+        self.copy_src_no = mgmt_no if copy_mode else None
+        
+        # 복사 모드일 경우 부모 클래스에는 mgmt_no를 None(신규)으로 전달하여 새 번호를 생성하게 함
+        real_mgmt_no = None if copy_mode else mgmt_no
+        
+        super().__init__(parent, data_manager, refresh_callback, popup_title="주문", mgmt_no=real_mgmt_no)
 
-        if not mgmt_no:
+        if not real_mgmt_no:
             self.entry_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
             self.combo_status.set("주문")
             if hasattr(self, 'btn_export_order'):
                 self.btn_export_order.grid_remove()
+                
+        # [신규] 복사 모드라면 원본 데이터 로드
+        if self.copy_mode and self.copy_src_no:
+            self._load_copied_data()
     
     def _create_widgets(self):
         self._create_top_frame()
@@ -33,9 +45,6 @@ class OrderPopup(BasePopup):
         self._create_additional_frames()
         self._layout_top_frame()
     
-    # ... (_create_top_frame, _layout_top_frame 등 기존 코드 유지) ...
-    # ... 반드시 기존 코드와 동일하게 유지해야 함 ...
-
     def _create_top_frame(self):
         super()._create_top_frame()
 
@@ -55,7 +64,6 @@ class OrderPopup(BasePopup):
         self.entry_tax_rate.insert(0, "10")
         self.entry_tax_rate.bind("<KeyRelease>", lambda e: self._calculate_totals())
 
-        # [신규] 출고요청서 발행 버튼 생성
         self.btn_export_order = ctk.CTkButton(self.top_frame, text="출고요청서", command=self.export_order_request, width=120, height=40,
                                         fg_color=COLORS["success"], hover_color="#26A65B", text_color="white", font=FONTS["main_bold"])
 
@@ -79,21 +87,16 @@ class OrderPopup(BasePopup):
         self.lbl_project.grid(row=2, column=0, padx=5, sticky="w")
         self.entry_project.grid(row=2, column=1, columnspan=5, padx=5, sticky="ew")
         
-        # [신규] 버튼 배치
         self.btn_export_order.grid(row=2, column=6, columnspan=2, padx=5, sticky="e")
 
-    # ... (나머지 메서드 생략, 기존과 동일) ...
-    # ... (_create_bottom_frame, _create_additional_frames, _on_client_select 등) ...
     def _create_bottom_frame(self):
         self.input_grid = ctk.CTkFrame(self, fg_color="transparent")
         self.input_grid.pack(fill="x", padx=20, pady=(10, 10))
         
-        # 주문요청사항 표시
         ctk.CTkLabel(self.input_grid, text="주문요청사항:", font=FONTS["main"]).grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.entry_req = ctk.CTkEntry(self.input_grid, width=300)
         self.entry_req.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
         
-        # 비고
         ctk.CTkLabel(self.input_grid, text="비고:", font=FONTS["main"]).grid(row=0, column=2, padx=5, pady=5, sticky="w")
         self.entry_note = ctk.CTkEntry(self.input_grid, width=300)
         self.entry_note.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
@@ -101,7 +104,6 @@ class OrderPopup(BasePopup):
         self.input_grid.columnconfigure(1, weight=1)
         self.input_grid.columnconfigure(3, weight=1)
 
-        # 발주서 등록
         row_idx = 1
         ctk.CTkLabel(self.input_grid, text="발주서:", font=FONTS["main"]).grid(row=row_idx, column=0, padx=5, pady=5, sticky="w")
         
@@ -128,7 +130,6 @@ class OrderPopup(BasePopup):
         except Exception as e:
             print(f"DnD Error: {e}")
 
-    # 파일 관련 메서드
     def update_file_entry(self, col_name, full_path):
         if not full_path: return
         self.full_paths[col_name] = full_path
@@ -229,7 +230,6 @@ class OrderPopup(BasePopup):
         self._calculate_totals()
 
     def _generate_new_id(self):
-        # 주문 번호 생성 (O + 날짜)
         today_str = datetime.now().strftime("%y%m%d")
         prefix = f"O{today_str}"
         
@@ -357,7 +357,6 @@ class OrderPopup(BasePopup):
         current_status = str(first.get("Status", "주문"))
         self.combo_status.set(current_status)
         
-        # [신규] 상태에 따라 버튼 표시
         if current_status in ["주문", "생산중"]:
             if hasattr(self, 'btn_export_order'): self.btn_export_order.grid()
         else:
@@ -365,6 +364,45 @@ class OrderPopup(BasePopup):
         
         self._on_client_select(client_name)
         for _, row in rows.iterrows(): self._add_item_row(row)
+
+    # [신규] 복사된 데이터 로드 (주문)
+    def _load_copied_data(self):
+        df = self.dm.df_data
+        rows = df[df["관리번호"] == self.copy_src_no]
+        if rows.empty: return
+        
+        first = rows.iloc[0]
+        
+        # 날짜와 상태는 __init__에서 신규로 설정됨 (오늘 날짜, 주문 상태)
+        
+        self.combo_type.set(str(first.get("구분", "내수")))
+        
+        client_name = str(first.get("업체명", ""))
+        self.entry_client.delete(0, "end")
+        self.entry_client.insert(0, client_name)
+        
+        self.combo_currency.set(str(first.get("통화", "KRW")))
+        
+        saved_tax = first.get("세율(%)", "")
+        if saved_tax != "" and saved_tax != "-": tax_rate = str(saved_tax)
+        else:
+            currency = str(first.get("통화", "KRW"))
+            tax_rate = "10" if currency == "KRW" else "0"
+        self.entry_tax_rate.delete(0, "end")
+        self.entry_tax_rate.insert(0, tax_rate)
+
+        original_proj = str(first.get("프로젝트명", ""))
+        self.entry_project.insert(0, f"{original_proj} (Copy)")
+        
+        self.entry_req.insert(0, str(first.get("주문요청사항", "")).replace("nan", ""))
+        self.entry_note.insert(0, str(first.get("비고", "")))
+        
+        # 파일은 복사하지 않음 (발주서 등은 고유하므로)
+        
+        self._on_client_select(client_name)
+        for _, row in rows.iterrows(): self._add_item_row(row)
+        
+        self.title(f"주문 복사 등록 (원본: {self.copy_src_no}) - Sales Manager")
 
     def save(self):
         mgmt_no = self.entry_id.get()
@@ -418,6 +456,7 @@ class OrderPopup(BasePopup):
             new_rows.append(row_data)
 
         def update_logic(dfs):
+            # 발주서 파일 처리
             order_path = common_data.get("발주서경로", "")
             if order_path and os.path.exists(order_path):
                 target_dir = os.path.join(Config.DEFAULT_ATTACHMENT_ROOT, "발주서")
@@ -427,7 +466,6 @@ class OrderPopup(BasePopup):
                 
                 ext = os.path.splitext(order_path)[1]
                 safe_client = "".join([c for c in client if c.isalnum() or c in (' ', '_')]).strip()
-                # 관리번호를 사용하여 파일명 생성
                 new_filename = f"발주서_{safe_client}_{mgmt_no}{ext}"
                 target_path = os.path.join(target_dir, new_filename)
                 
@@ -439,24 +477,32 @@ class OrderPopup(BasePopup):
                     except Exception as e:
                         return False, f"파일 복사 실패: {e}"
 
+            # [수정] 복사 모드일 때는 신규 등록이므로 기존 데이터 삭제 로직 건너뜀
             if self.mgmt_no:
                 mask = dfs["data"]["관리번호"] == self.mgmt_no
                 existing_rows = dfs["data"][mask]
                 if not existing_rows.empty:
                     first_exist = existing_rows.iloc[0]
+                    # 주문 수정 시 기존 일정/증빙 정보 보존
+                    preserve_cols = ["견적일", "출고예정일", "출고일", "입금완료일", 
+                                     "세금계산서발행일", "계산서번호", "수출신고번호", "송장번호", "운송방법"]
                     for row in new_rows:
-                        row["견적일"] = first_exist.get("견적일", "-")
-                        row["출고예정일"] = first_exist.get("출고예정일", "-")
-                        row["출고일"] = first_exist.get("출고일", "-")
-                        row["입금완료일"] = first_exist.get("입금완료일", "-")
+                        for col in preserve_cols:
+                            row[col] = first_exist.get(col, "-")
                 
                 dfs["data"] = dfs["data"][~mask]
             
             new_df = pd.DataFrame(new_rows)
             dfs["data"] = pd.concat([dfs["data"], new_df], ignore_index=True)
             
-            action = "수정" if self.mgmt_no else "등록"
-            log_msg = f"주문 {action}: 번호 [{mgmt_no}] / 업체 [{client}]"
+            # 로그 메시지 구분
+            if self.copy_mode:
+                action = "복사 등록"
+                log_msg = f"주문 복사: [{self.copy_src_no}] -> [{mgmt_no}] / 업체 [{client}]"
+            else:
+                action = "수정" if self.mgmt_no else "등록"
+                log_msg = f"주문 {action}: 번호 [{mgmt_no}] / 업체 [{client}]"
+                
             new_log = self.dm._create_log_entry(f"주문 {action}", log_msg)
             dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
             
@@ -472,7 +518,6 @@ class OrderPopup(BasePopup):
             messagebox.showerror("실패", msg, parent=self)
 
     def delete(self):
-        # (기존 delete 메서드 유지)
         if messagebox.askyesno("삭제 확인", f"정말 이 {self.popup_title} 데이터를 삭제하시겠습니까?", parent=self):
             def update_logic(dfs):
                 mask = dfs["data"]["관리번호"] == self.mgmt_no
@@ -492,7 +537,6 @@ class OrderPopup(BasePopup):
             else:
                 messagebox.showerror("실패", msg, parent=self)
 
-    # [NEW] 출고요청서 발행 구현
     def export_order_request(self):
         client_name = self.entry_client.get()
         if not client_name:
