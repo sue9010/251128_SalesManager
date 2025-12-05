@@ -11,6 +11,7 @@ from config import Config
 
 
 class DataManager:
+    # ... (기존 __init__, load_config, save_config 메서드 유지) ...
     def __init__(self):
         self.df_clients = pd.DataFrame(columns=Config.CLIENT_COLUMNS)
         self.df_data = pd.DataFrame(columns=Config.DATA_COLUMNS)
@@ -63,6 +64,7 @@ class DataManager:
         except Exception as e:
             print(f"설정 저장 실패: {e}")
 
+    # ... (기존 load_data, check_for_external_changes 등 메서드 유지) ...
     def load_data(self):
         if not os.path.exists(self.current_excel_path):
             return False, "파일이 존재하지 않습니다."
@@ -125,6 +127,7 @@ class DataManager:
 
         try:
             with pd.ExcelFile(self.current_excel_path) as xls:
+                # ... (시트 로드 로직 동일) ...
                 if Config.SHEET_CLIENTS in xls.sheet_names:
                     temp_clients = pd.read_excel(xls, Config.SHEET_CLIENTS)
                     temp_clients.columns = temp_clients.columns.str.strip()
@@ -155,10 +158,16 @@ class DataManager:
                     temp_memo_log = pd.read_excel(xls, Config.SHEET_MEMO_LOG)
                 else: temp_memo_log = pd.DataFrame(columns=Config.MEMO_LOG_COLUMNS)
 
+            # 컬럼 보정
             for col in Config.DATA_COLUMNS:
                 if col not in temp_data.columns: temp_data[col] = "-"
             temp_data = temp_data.fillna("-")
             temp_clients = temp_clients.fillna("-")
+            
+            # [수정] Delivery 시트 컬럼 보정 (출고번호 추가 대응)
+            for col in Config.DELIVERY_COLUMNS:
+                if col not in temp_delivery.columns: temp_delivery[col] = "-"
+            temp_delivery = temp_delivery.fillna("-")
 
             dfs = {
                 "clients": temp_clients, "data": temp_data, 
@@ -186,6 +195,7 @@ class DataManager:
         except Exception as e:
             return False, f"트랜잭션 오류: {e}"
 
+    # ... (기존 recalc_payment_status, _create_log_entry, _preprocess_data 등 유지) ...
     def recalc_payment_status(self, dfs, mgmt_no):
         pay_df = dfs["payment"]
         if pay_df.empty:
@@ -263,6 +273,11 @@ class DataManager:
         
         self.df_data = self.df_data.fillna("-")
         self.df_clients = self.df_clients.fillna("-")
+        
+        # [수정] Delivery 데이터프레임 전처리
+        if "출고번호" not in self.df_delivery.columns:
+            self.df_delivery["출고번호"] = "-"
+        self.df_delivery = self.df_delivery.fillna("-")
         
         num_cols = ["수량", "단가", "환율", "세율(%)", "공급가액", "세액", "합계금액", "기수금액", "미수금액"]
         for col in num_cols:
@@ -354,6 +369,7 @@ class DataManager:
 
     def clean_old_logs(self): return True, "로그 정리 완료"
 
+    # ... (export_to_production_request, sync_production_dates 등 유지) ...
     def export_to_production_request(self, rows_data):
         prod_path = self.production_request_path
         if not os.path.exists(prod_path):
@@ -534,17 +550,44 @@ class DataManager:
             return str(val).strip() if str(val).lower() != "nan" else ""
         return ""
 
-    # [NEW] 고객사 운송계정 조회
     def get_client_shipping_account(self, client_name):
-        """
-        Customers 시트에서 특정 업체의 운송계정(K열)을 반환합니다.
-        """
         if self.df_clients.empty:
             return ""
             
         row = self.df_clients[self.df_clients["업체명"] == client_name]
         if not row.empty:
-            # K열은 '운송계정' 컬럼입니다.
             val = row.iloc[0].get("운송계정", "")
             return str(val).strip() if str(val).lower() != "nan" else ""
         return ""
+
+    # [NEW] 출고 번호 생성
+    def generate_delivery_no(self, delivery_df=None):
+        """
+        새로운 출고 번호를 생성합니다. 형식: CX{YYMMDD}-{Seq:03d}
+        트랜잭션 중에는 트랜잭션 내의 delivery_df를 전달받아 중복을 피합니다.
+        """
+        today_str = datetime.now().strftime("%y%m%d")
+        prefix = f"CX{today_str}"
+        
+        target_df = self.df_delivery if delivery_df is None else delivery_df
+        
+        # '출고번호' 컬럼이 없으면 빈 시리즈 처리
+        if "출고번호" not in target_df.columns:
+            existing_ids = []
+        else:
+            existing_ids = target_df[target_df["출고번호"].astype(str).str.startswith(prefix)]["출고번호"].unique()
+        
+        if len(existing_ids) == 0:
+            seq = 1
+        else:
+            max_seq = 0
+            for eid in existing_ids:
+                try:
+                    parts = str(eid).split("-")
+                    if len(parts) > 1:
+                        seq_num = int(parts[-1])
+                        if seq_num > max_seq: max_seq = seq_num
+                except: pass
+            seq = max_seq + 1
+            
+        return f"{prefix}-{seq:03d}"

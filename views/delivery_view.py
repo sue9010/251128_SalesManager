@@ -98,7 +98,7 @@ class DeliveryView(ctk.CTkFrame):
         prod_status_map = self.dm.get_production_status_map()
 
         keyword = self.entry_search.get().strip().lower()
-        target_status = ["생산중", "납품대기", "납품대기/입금완료"]
+        target_status = ["생산중", "납품대기", "납품대기/입금완료","납품완료/입금대기"]
         target_df = df[df["Status"].astype(str).isin(target_status)]
         
         if target_df.empty: return
