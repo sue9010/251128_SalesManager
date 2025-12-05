@@ -28,6 +28,7 @@ class OrderPopup(BasePopup):
         self.item_rows = [] # 데이터 추적용 (BasePopup 호환)
 
         super().__init__(parent, data_manager, refresh_callback, popup_title="주문", mgmt_no=real_mgmt_no)
+        self.geometry("1350x850")
 
         if not real_mgmt_no:
             self.entry_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
@@ -36,35 +37,6 @@ class OrderPopup(BasePopup):
         if self.copy_mode and self.copy_src_no:
             self._load_copied_data()
     
-    def _create_widgets(self):
-        self.configure(fg_color=COLORS["bg_dark"])
-        self.geometry("1350x850")
-        
-        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_container.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        # 1. 헤더
-        self._create_header(self.main_container)
-        
-        # 2. 메인 콘텐츠 (Split View)
-        self.content_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
-        self.content_frame.pack(fill="both", expand=True, pady=10)
-        
-        # 좌측: 주문 정보 (Fixed 400px)
-        self.info_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10, width=400)
-        self.info_panel.pack(side="left", fill="y", padx=(0, 10))
-        self.info_panel.pack_propagate(False)
-
-        # 우측: 품목 리스트 (Flexible)
-        self.items_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10)
-        self.items_panel.pack(side="right", fill="both", expand=True, padx=(10, 0))
-        self.items_panel.pack_propagate(False)
-        
-        self._setup_info_panel(self.info_panel)
-        self._setup_items_panel(self.items_panel)
-        
-        # 3. 하단 액션 바
-        self._create_footer(self.main_container)
 
     def _create_header(self, parent):
         header_frame = ctk.CTkFrame(parent, fg_color="transparent")
@@ -244,20 +216,6 @@ class OrderPopup(BasePopup):
         except Exception as e:
             print(f"DnD Setup Error: {e}")
 
-    def _create_footer(self, parent):
-        footer_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        footer_frame.pack(fill="x", pady=(10, 0))
-        
-        ctk.CTkButton(footer_frame, text="삭제", command=self.delete, width=100, height=45,
-                      fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left")
-                      
-        ctk.CTkButton(footer_frame, text="닫기", command=self.destroy, width=100, height=45,
-                      fg_color=COLORS["bg_light"], hover_color=COLORS["bg_light_hover"], 
-                      text_color=COLORS["text"]).pack(side="right", padx=(10, 0))
-                      
-        ctk.CTkButton(footer_frame, text="저장", command=self.save, width=200, height=45,
-                      fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], 
-                      font=FONTS["header"]).pack(side="right")
 
     def _add_item_row(self, item_data=None):
         row_frame = ctk.CTkFrame(self.scroll_items, fg_color="transparent", height=35)

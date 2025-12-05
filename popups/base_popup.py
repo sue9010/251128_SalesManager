@@ -41,8 +41,71 @@ class BasePopup(ctk.CTkToplevel):
         self.attributes("-topmost", True)
 
     def _create_widgets(self):
-        """UI 위젯을 생성하고 배치합니다. 하위 클래스에서 반드시 구현해야 합니다."""
-        raise NotImplementedError("Subclasses must implement _create_widgets")
+        """Standard Split View Layout: Header -> Split Content (Info + Items) -> Footer"""
+        self.configure(fg_color=COLORS["bg_dark"])
+        
+        # Main Container
+        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_container.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # 1. Header
+        self._create_header(self.main_container)
+        
+        # 2. Main Content (Split View)
+        self.content_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.content_frame.pack(fill="both", expand=True, pady=10)
+        
+        # Left Panel (Info)
+        self.info_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10, width=400)
+        self.info_panel.pack(side="left", fill="y", padx=(0, 10))
+        self.info_panel.pack_propagate(False)
+        self._setup_info_panel(self.info_panel)
+        
+        # Right Panel (Items)
+        self.items_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10)
+        self.items_panel.pack(side="right", fill="both", expand=True)
+        self._setup_items_panel(self.items_panel)
+        
+        # 3. Footer
+        self._create_footer(self.main_container)
+
+    def _create_header(self, parent):
+        """Common Header: ID and Title. Subclasses can override or extend."""
+        self.header_frame = ctk.CTkFrame(parent, height=50, fg_color="transparent")
+        self.header_frame.pack(fill="x", pady=(0, 10))
+        
+        # Title/ID
+        title_text = f"{self.popup_title} #{self.mgmt_no}" if self.mgmt_no else f"새 {self.popup_title}"
+        self.lbl_title = ctk.CTkLabel(self.header_frame, text=title_text, font=FONTS["header"])
+        self.lbl_title.pack(side="left", padx=10)
+
+    def _setup_info_panel(self, parent):
+        """Hook for Left Info Panel content. Must be implemented by subclasses."""
+        raise NotImplementedError("Subclasses must implement _setup_info_panel")
+
+    def _setup_items_panel(self, parent):
+        """Hook for Right Items Panel content. Must be implemented by subclasses."""
+        raise NotImplementedError("Subclasses must implement _setup_items_panel")
+
+    def _create_footer(self, parent):
+        """Common Footer: Action Buttons (Save, Cancel, Delete)."""
+        self.footer_frame = ctk.CTkFrame(parent, height=60, fg_color="transparent")
+        self.footer_frame.pack(fill="x", pady=(10, 0), side="bottom")
+        
+        # Right Side: Save, Cancel
+        self.btn_save = ctk.CTkButton(self.footer_frame, text="저장", command=self.save, width=120, height=40,
+                      fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], font=FONTS["main_bold"])
+        self.btn_save.pack(side="right", padx=5)
+        
+        self.btn_cancel = ctk.CTkButton(self.footer_frame, text="취소", command=self.destroy, width=80, height=40,
+                      fg_color=COLORS["bg_light"], hover_color=COLORS["bg_light_hover"], text_color=COLORS["text"])
+        self.btn_cancel.pack(side="right", padx=5)
+        
+        # Left Side: Delete (if exists)
+        if self.mgmt_no:
+             self.btn_delete = ctk.CTkButton(self.footer_frame, text="삭제", command=self.delete, width=80, height=40,
+                          fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"])
+             self.btn_delete.pack(side="left")
 
     def _add_item_row(self, item_data=None):
         """품목 테이블에 새로운 행을 추가합니다."""

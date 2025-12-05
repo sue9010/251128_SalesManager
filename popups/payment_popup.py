@@ -27,36 +27,8 @@ class PaymentPopup(BasePopup):
             
         self.full_paths = {}
         super().__init__(parent, data_manager, refresh_callback, popup_title="수금", mgmt_no=self.mgmt_nos[0])
-
-    def _create_widgets(self):
-        self.configure(fg_color=COLORS["bg_dark"])
         self.geometry("1500x850")
-        
-        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_container.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        # 1. 헤더
-        self._create_header(self.main_container)
-        
-        # 2. 메인 콘텐츠 (Split View)
-        self.content_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
-        self.content_frame.pack(fill="both", expand=True, pady=10)
-        
-        # 좌측: 수금 정보 (Fixed 400px)
-        self.info_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10, width=400)
-        self.info_panel.pack(side="left", fill="y", padx=(0, 10))
-        self.info_panel.pack_propagate(False)
-        
-        # 우측: 품목 리스트 (Flexible)
-        self.items_panel = ctk.CTkFrame(self.content_frame, fg_color=COLORS["bg_medium"], corner_radius=10)
-        self.items_panel.pack(side="right", fill="both", expand=True, padx=(10, 0))
-        self.items_panel.pack_propagate(False)
-        
-        self._setup_info_panel(self.info_panel)
-        self._setup_items_panel(self.items_panel)
-        
-        # 3. 하단 액션 바
-        self._create_footer(self.main_container)
+
 
     def _create_header(self, parent):
         header_frame = ctk.CTkFrame(parent, fg_color="transparent")
