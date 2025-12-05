@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
+from datetime import datetime  # [수정] datetime import 위치 조정
 
+import pandas as pd  # [신규] 데이터 처리를 위해 추가
 import customtkinter as ctk
 
 from config import Config
@@ -33,7 +35,6 @@ class QuoteView(ctk.CTkFrame):
         ctk.CTkButton(toolbar, text="검색", width=60, command=self.refresh_data, 
                       fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text"]).pack(side="left")
 
-        # [수정] 팝업 연결 완료
         ctk.CTkButton(toolbar, text="+ 신규 견적", width=100, command=self.open_add_popup,
                       fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"]).pack(side="right")
         
@@ -62,10 +63,14 @@ class QuoteView(ctk.CTkFrame):
         self.tree.bind("<Double-1>", self.on_double_click)
         self.tree.bind("<Button-3>", self.on_right_click)
         
+        # [수정] 우클릭 메뉴 항목 추가
         self.context_menu = tk.Menu(self, tearoff=0)
         self.context_menu.add_command(label="상세 보기 / 수정", command=self.on_context_edit)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="🛒 주문 확정 처리", command=self.on_context_order)
+        self.context_menu.add_separator() # 구분선 추가
+        self.context_menu.add_command(label="🚫 견적 취소", command=self.on_context_cancel)
+        self.context_menu.add_command(label="⏸ 보류 처리", command=self.on_context_hold)
 
     def style_treeview(self):
         style = ttk.Style()
@@ -87,31 +92,30 @@ class QuoteView(ctk.CTkFrame):
 
         keyword = self.entry_search.get().strip().lower()
         
-        # 기본적으로 '견적' 상태인 것만 표시 (검색 시 전체)
+        # [수정] '취소' 상태도 검색 시에는 보이도록 하거나, 기본 뷰에서는 제외하는 정책 필요
+        # 여기서는 검색어가 없으면 '견적', '보류'만 보여주고, 검색어가 있으면 전체 검색으로 처리
         if not keyword:
-            target_df = df[df["Status"] == "견적"]
+            target_df = df[df["Status"].isin(["견적", "보류"])]
         else:
             target_df = df
 
-        # 관리번호 기준으로 중복 제거 (대표 1개 행만 표시)
-        # 품목이 여러 개여도 리스트에는 1줄만 나와야 깔끔함
         if not target_df.empty:
-            # 관리번호별로 그룹화하여 첫 번째 행만 가져오되, 수량과 금액은 합산
             grouped = target_df.groupby("관리번호", as_index=False).agg({
                 "업체명": "first",
-                "모델명": "first", # "외 N건" 처리 로직 추가 가능
+                "모델명": "first", 
                 "수량": "sum",
                 "합계금액": "sum",
                 "견적일": "first",
                 "Status": "first"
             })
-            # 날짜순 정렬
             grouped = grouped.sort_values(by="견적일", ascending=False)
             
             for _, row in grouped.iterrows():
                 if keyword:
-                    # 검색 필터 로직 (생략 가능 또는 상세 구현)
-                    pass
+                    # 간단한 검색 필터 (관리번호, 업체명, 모델명)
+                    search_text = f"{row['관리번호']} {row['업체명']} {row['모델명']}".lower()
+                    if keyword not in search_text:
+                        continue
 
                 try:
                     amt = float(str(row.get("합계금액", 0)).replace(",",""))
@@ -131,7 +135,6 @@ class QuoteView(ctk.CTkFrame):
                 self.tree.insert("", "end", values=values)
 
     def open_add_popup(self):
-        # [수정] 실제 팝업 호출
         self.pm.open_quote_popup(None)
 
     def on_double_click(self, event):
@@ -148,9 +151,9 @@ class QuoteView(ctk.CTkFrame):
         if not selected: return
         item = self.tree.item(selected[0])
         mgmt_no = item["values"][0]
-        # [수정] 실제 팝업 호출
         self.pm.open_quote_popup(mgmt_no)
 
+    # [수정] 주문 확정 처리 (트랜잭션 적용)
     def on_context_order(self):
         selected = self.tree.selection()
         if not selected: return
@@ -159,22 +162,68 @@ class QuoteView(ctk.CTkFrame):
         mgmt_no = item["values"][0]
         
         if messagebox.askyesno("주문 확정", f"견적 번호 [{mgmt_no}]를 '주문' 상태로 변경하시겠습니까?\n이 작업 후에는 '주문 관리' 메뉴에서 확인 가능합니다."):
-            success = self.update_status_to_order(mgmt_no)
+            success, msg = self.update_status_to_order(mgmt_no)
             if success:
                 messagebox.showinfo("완료", "주문 확정 처리되었습니다.")
                 self.refresh_data()
             else:
-                messagebox.showerror("실패", "상태 변경에 실패했습니다.")
+                messagebox.showerror("실패", f"상태 변경에 실패했습니다.\n{msg}")
 
+    # [신규] 견적 취소 처리
+    def on_context_cancel(self):
+        self._process_status_change("취소", "해당 견적을 '취소' 처리하시겠습니까?")
+
+    # [신규] 보류 처리
+    def on_context_hold(self):
+        self._process_status_change("보류", "해당 견적을 '보류' 상태로 변경하시겠습니까?")
+
+    def _process_status_change(self, new_status, confirm_msg):
+        selected = self.tree.selection()
+        if not selected: return
+        
+        item = self.tree.item(selected[0])
+        mgmt_no = item["values"][0]
+        
+        if messagebox.askyesno("상태 변경", f"관리번호 [{mgmt_no}]\n{confirm_msg}"):
+            success, msg = self._update_status_generic(mgmt_no, new_status)
+            if success:
+                messagebox.showinfo("완료", f"{new_status} 처리되었습니다.")
+                self.refresh_data()
+            else:
+                messagebox.showerror("실패", f"처리에 실패했습니다.\n{msg}")
+
+    # [수정] 주문 확정 트랜잭션 로직
     def update_status_to_order(self, mgmt_no):
-        # DataManager를 통해 상태 업데이트
-        df = self.dm.df_data
-        mask = df["관리번호"] == mgmt_no
-        if mask.any():
-            from datetime import datetime
+        def update_logic(dfs):
+            mask = dfs["data"]["관리번호"] == mgmt_no
+            if mask.any():
+                # 상태 변경 및 수주일 기록
+                dfs["data"].loc[mask, "Status"] = "주문"
+                dfs["data"].loc[mask, "수주일"] = datetime.now().strftime("%Y-%m-%d")
+                
+                # 로그 기록
+                log_msg = f"주문 확정: 번호 [{mgmt_no}] (견적 -> 주문)"
+                new_log = self.dm._create_log_entry("상태변경", log_msg)
+                dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
+                
+                return True, ""
+            return False, "데이터를 찾을 수 없습니다."
 
-            # 해당 번호를 가진 모든 행(품목)의 상태를 업데이트
-            self.dm.df_data.loc[mask, "Status"] = "주문"
-            self.dm.df_data.loc[mask, "수주일"] = datetime.now().strftime("%Y-%m-%d")
-            return self.dm.save_to_excel()
-        return False
+        return self.dm._execute_transaction(update_logic)
+
+    # [신규] 일반 상태 변경 트랜잭션 로직 (취소, 보류 등)
+    def _update_status_generic(self, mgmt_no, new_status):
+        def update_logic(dfs):
+            mask = dfs["data"]["관리번호"] == mgmt_no
+            if mask.any():
+                dfs["data"].loc[mask, "Status"] = new_status
+                
+                # 로그 기록
+                log_msg = f"견적 상태변경({new_status}): 번호 [{mgmt_no}]"
+                new_log = self.dm._create_log_entry("상태변경", log_msg)
+                dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
+                
+                return True, ""
+            return False, "데이터를 찾을 수 없습니다."
+
+        return self.dm._execute_transaction(update_logic)
