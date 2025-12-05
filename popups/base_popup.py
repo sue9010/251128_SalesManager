@@ -26,6 +26,8 @@ class BasePopup(ctk.CTkToplevel):
         self.title(f"{mode_text} - Sales Manager")
         self.geometry("1100x750")
         
+        self.item_rows = []
+        
         self._create_widgets()
 
         
