@@ -1,7 +1,6 @@
 import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox
-
 import customtkinter as ctk
 import pandas as pd
 
@@ -19,11 +18,14 @@ class QuotePopup(BasePopup):
         # [수정] 복사 모드일 경우, 부모 클래스에는 mgmt_no를 None(신규)으로 전달하여 새 번호를 따게 함
         real_mgmt_no = None if copy_mode else mgmt_no
         
+        self.item_widgets_map = {} # 위젯 추적용
+        self.item_rows = [] # 데이터 추적용 (BasePopup 호환)
+
         super().__init__(parent, data_manager, refresh_callback, popup_title="견적", mgmt_no=real_mgmt_no)
 
         # 신규 등록(또는 복사)일 때 기본값 설정
         if not real_mgmt_no:
-            # self.entry_date.insert(0, datetime.now().strftime("%Y-%m-%d")) # _setup_info_panel에서 처리하거나 여기서 처리 (중복 방지)
+            self.entry_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
             self.combo_status.set("견적")
             
         # [신규] 복사 모드라면 원본 데이터 로드하여 필드 채우기
@@ -32,7 +34,7 @@ class QuotePopup(BasePopup):
     
     def _create_widgets(self):
         self.configure(fg_color=COLORS["bg_dark"])
-        self.geometry("1550x850") # OrderPopup과 동일한 크기
+        self.geometry("1350x850") # OrderPopup과 동일한 크기
         
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.pack(fill="both", expand=True, padx=20, pady=20)
@@ -68,54 +70,84 @@ class QuotePopup(BasePopup):
         top_row = ctk.CTkFrame(header_frame, fg_color="transparent")
         top_row.pack(fill="x", anchor="w")
         
-        self.lbl_id = ctk.CTkLabel(top_row, text="NEW QUOTE", font=FONTS["main"], text_color=COLORS["text_dim"])
-        self.lbl_id.pack(side="left")
+        self.entry_id = ctk.CTkEntry(top_row, width=150, font=FONTS["main_bold"], text_color=COLORS["text_dim"])
+        self.entry_id.pack(side="left")
+        self.entry_id.insert(0, "NEW")
+        self.entry_id.configure(state="readonly")
         
-        # 상태 콤보박스 (헤더에 배치)
-        self.combo_status = ctk.CTkComboBox(top_row, values=["견적", "진행중", "완료", "취소"], width=100, height=24, font=FONTS["small"])
+        # 상태 콤보박스
+        self.combo_status = ctk.CTkComboBox(top_row, values=["견적", "진행중", "완료", "취소"], 
+                                          width=100, font=FONTS["main"], state="readonly")
         self.combo_status.pack(side="left", padx=10)
         self.combo_status.set("견적")
-        
-        # 프로젝트명 및 고객사 (헤더에 표시)
-        info_row = ctk.CTkFrame(header_frame, fg_color="transparent")
-        info_row.pack(fill="x", pady=(5, 0))
-        
-        self.lbl_project_header = ctk.CTkLabel(info_row, text="Project Name", font=FONTS["title"], anchor="w")
-        self.lbl_project_header.pack(side="left", padx=(0, 20))
-        
-        ctk.CTkLabel(info_row, text="|", font=FONTS["header"], text_color=COLORS["text_dim"]).pack(side="left", padx=10)
-        
-        self.lbl_client_header = ctk.CTkLabel(info_row, text="Client Name", font=FONTS["header"], text_color=COLORS["text_dim"], anchor="w")
-        self.lbl_client_header.pack(side="left", padx=10)
-        
-        # 숨겨진 필드 (로직 호환성)
-        self.entry_id = ctk.CTkEntry(self, width=0) # _generate_new_id 등에서 사용
-        
-    def _setup_info_panel(self, parent):
-        # 스크롤 없이 고정된 패널 사용
-        
-        # 1. 기본 정보 섹션
-        ctk.CTkLabel(parent, text="기본 정보", font=FONTS["header"]).pack(anchor="w", padx=10, pady=(10, 5))
-        
-        input_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        input_frame.pack(fill="x", padx=10)
-        
-        # Grid 설정
-        info_grid = ctk.CTkFrame(input_frame, fg_color="transparent")
-        info_grid.pack(fill="x", pady=5)
-        info_grid.columnconfigure(0, weight=1)
-        info_grid.columnconfigure(1, weight=1)
 
-        def create_grid_input(parent, row, col, label, var_name, placeholder="", colspan=1):
-            f = ctk.CTkFrame(parent, fg_color="transparent")
-            f.grid(row=row, column=col, columnspan=colspan, sticky="ew", padx=2, pady=2)
+    def _setup_items_panel(self, parent):
+        # 타이틀 & 추가 버튼
+        title_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        title_frame.pack(fill="x", padx=15, pady=15)
+        
+        ctk.CTkLabel(title_frame, text="견적 품목 리스트", font=FONTS["header"]).pack(side="left")
+        
+        ctk.CTkButton(title_frame, text="+ 품목 추가", command=self._add_item_row, width=100, height=30,
+                      fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"]).pack(side="right")
+        
+        # 헤더
+        headers = ["품명", "모델명", "Description", "수량", "단가", "공급가액", "세액", "합계", "삭제"]
+        widths = [120, 120, 150, 50, 80, 80, 60, 80, 40]
+        
+        header_frame = ctk.CTkFrame(parent, height=35, fg_color=COLORS["bg_dark"])
+        header_frame.pack(fill="x", padx=15)
+        
+        for h, w in zip(headers, widths):
+            ctk.CTkLabel(header_frame, text=h, width=w, font=FONTS["main_bold"]).pack(side="left", padx=2)
             
+        self.scroll_items = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        self.scroll_items.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # 합계 표시 영역
+        total_frame = ctk.CTkFrame(parent, fg_color="transparent", height=40)
+        total_frame.pack(fill="x", padx=20, pady=10)
+        
+        self.lbl_total_qty = ctk.CTkLabel(total_frame, text="총 수량: 0", font=FONTS["main_bold"])
+        self.lbl_total_qty.pack(side="right", padx=10)
+        
+        self.lbl_total_amt = ctk.CTkLabel(total_frame, text="총 합계: 0", font=FONTS["header"], text_color=COLORS["primary"])
+        self.lbl_total_amt.pack(side="right", padx=20)
+
+    def _setup_info_panel(self, parent):
+        # 스크롤 제거하고 일반 프레임 사용 (공간 최적화)
+        main_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # 1. 기본 정보 (2열 그리드)
+        ctk.CTkLabel(main_frame, text="기본 정보", font=FONTS["header"]).pack(anchor="w", pady=(0, 5))
+        
+        info_grid = ctk.CTkFrame(main_frame, fg_color="transparent")
+        info_grid.pack(fill="x", pady=(0, 10))
+        
+        # Helper to create labeled entry in grid
+        def create_grid_input(parent, row, col, label, var_name, placeholder="", width=None):
+            f = ctk.CTkFrame(parent, fg_color="transparent")
+            f.grid(row=row, column=col, sticky="ew", padx=2, pady=2)
             ctk.CTkLabel(f, text=label, width=60, anchor="w", font=FONTS["main"], text_color=COLORS["text_dim"]).pack(side="left")
-            entry = ctk.CTkEntry(f, height=28, placeholder_text=placeholder, font=FONTS["main"])
+            entry = ctk.CTkEntry(f, height=28, placeholder_text=placeholder) # 높이 약간 줄임
             entry.pack(side="left", fill="x", expand=True)
             setattr(self, var_name, entry)
             return entry
-        # Row 0: 고객사 (Autocomplete)
+
+        # Helper for ComboBox in grid
+        def create_grid_combo(parent, row, col, label, values, cmd=None):
+            f = ctk.CTkFrame(parent, fg_color="transparent")
+            f.grid(row=row, column=col, sticky="ew", padx=2, pady=2)
+            ctk.CTkLabel(f, text=label, width=60, anchor="w", font=FONTS["main"], text_color=COLORS["text_dim"]).pack(side="left")
+            combo = ctk.CTkComboBox(f, values=values, command=cmd, height=28)
+            combo.pack(side="left", fill="x", expand=True)
+            return combo
+
+        info_grid.columnconfigure(0, weight=1)
+        info_grid.columnconfigure(1, weight=1)
+        
+        # Row 0: 고객사 (Full Width)
         f_client = ctk.CTkFrame(info_grid, fg_color="transparent")
         f_client.grid(row=0, column=0, columnspan=2, sticky="ew", padx=2, pady=2)
         ctk.CTkLabel(f_client, text="고객사", width=60, anchor="w", font=FONTS["main"], text_color=COLORS["text_dim"]).pack(side="left")
@@ -129,219 +161,124 @@ class QuotePopup(BasePopup):
         
         # 직접 입력 후 엔터 시에도 업데이트 (FocusOut은 AutocompleteEntry 내부에서 처리)
         self.entry_client.bind("<Return>", lambda e: self._on_client_select(self.entry_client.get()))
-        
-        # Row 1: 프로젝트
-        create_grid_input(info_grid, 1, 0, "프로젝트", "entry_project", colspan=2)
-        
-        # Row 2: 견적일자 | 구분
-        date_entry = create_grid_input(info_grid, 2, 0, "견적일자", "entry_date")
-        date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
-        
-        # 구분 (ComboBox)
-        f_type = ctk.CTkFrame(info_grid, fg_color="transparent")
-        f_type.grid(row=2, column=1, sticky="ew", padx=2, pady=2)
-        ctk.CTkLabel(f_type, text="구분", width=60, anchor="w", font=FONTS["main"], text_color=COLORS["text_dim"]).pack(side="left")
-        self.combo_type = ctk.CTkComboBox(f_type, values=["내수", "수출"], height=28, font=FONTS["main"], command=self.on_type_change)
-        self.combo_type.pack(side="left", fill="x", expand=True)
-        self.combo_type.set("내수")
 
-        # Row 3: 통화 | 세율
-        # 통화 (ComboBox)
-        f_curr = ctk.CTkFrame(info_grid, fg_color="transparent")
-        f_curr.grid(row=3, column=0, sticky="ew", padx=2, pady=2)
-        ctk.CTkLabel(f_curr, text="통화", width=60, anchor="w", font=FONTS["main"], text_color=COLORS["text_dim"]).pack(side="left")
-        self.combo_currency = ctk.CTkComboBox(f_curr, values=["KRW", "USD", "EUR", "CNY", "JPY"], height=28, font=FONTS["main"], command=self.on_currency_change)
-        self.combo_currency.pack(side="left", fill="x", expand=True)
+        # Row 1: 프로젝트 (Full Width)
+        create_grid_input(info_grid, 1, 0, "프로젝트", "entry_project").master.grid(columnspan=2)
+        
+        # Row 2: 견적일자 | (Empty or something else)
+        date_entry = create_grid_input(info_grid, 2, 0, "견적일자", "entry_date")
+        # date_entry.insert(0, datetime.now().strftime("%Y-%m-%d")) # __init__에서 처리됨
+        
+        # Row 3: 구분 | 통화
+        self.combo_type = create_grid_combo(info_grid, 3, 0, "구분", ["내수", "수출"], self.on_type_change)
+        self.combo_type.set("내수")
+        self.combo_currency = create_grid_combo(info_grid, 3, 1, "통화", ["KRW", "USD", "EUR", "CNY", "JPY"], self.on_currency_change)
         self.combo_currency.set("KRW")
         
-        # 세율
-        tax_entry = create_grid_input(info_grid, 3, 1, "세율(%)", "entry_tax_rate")
+        # Row 4: 세율 | (Empty)
+        tax_entry = create_grid_input(info_grid, 4, 0, "세율(%)", "entry_tax_rate")
         tax_entry.insert(0, "10")
         tax_entry.bind("<KeyRelease>", lambda e: self._calculate_totals())
 
-        ctk.CTkFrame(parent, height=2, fg_color=COLORS["border"]).pack(fill="x", padx=10, pady=10)
+        ctk.CTkFrame(main_frame, height=1, fg_color=COLORS["border"]).pack(fill="x", pady=5)
 
-        # 2. 추가 정보 (특이사항, 비고)
-        ctk.CTkLabel(parent, text="추가 정보", font=FONTS["header"]).pack(anchor="w", padx=10, pady=(0, 5))
+        # 2. 추가 정보
+        self.lbl_client_note = ctk.CTkLabel(main_frame, text="업체 특이사항: -", font=FONTS["main"], text_color=COLORS["danger"], anchor="w")
+        self.lbl_client_note.pack(fill="x", pady=(0, 2))
         
-        # 업체 특이사항
-        self.lbl_client_note = ctk.CTkLabel(parent, text="업체 특이사항: -", font=FONTS["main"], text_color=COLORS["danger"], anchor="w", wraplength=380)
-        self.lbl_client_note.pack(fill="x", padx=15, pady=(0, 5))
+        note_grid = ctk.CTkFrame(main_frame, fg_color="transparent")
+        note_grid.pack(fill="x", pady=(0, 5))
+        note_grid.columnconfigure(0, weight=1)
         
-        # 견적 비고
-        ctk.CTkLabel(parent, text="견적 비고", font=FONTS["main"], text_color=COLORS["text_dim"]).pack(anchor="w", padx=15, pady=(5, 0))
-        self.entry_note = ctk.CTkEntry(parent, height=60) # Multiline 느낌을 위해 높이 키움 (실제론 Entry)
-        self.entry_note.pack(fill="x", padx=10, pady=5)
-        
-        ctk.CTkFrame(parent, height=2, fg_color=COLORS["border"]).pack(fill="x", padx=10, pady=10)
+        create_grid_input(note_grid, 0, 0, "비고", "entry_note")
 
-        # 3. 문서 발행
-        ctk.CTkLabel(parent, text="문서 발행", font=FONTS["header"]).pack(anchor="w", padx=10, pady=(0, 5))
-        
-        self.btn_export = ctk.CTkButton(parent, text="📄 견적서 발행 (PDF)", command=self.export_quote, height=30,
-                                      fg_color=COLORS["bg_light"], hover_color=COLORS["primary_hover"], 
-                                      text_color=COLORS["text"], font=FONTS["main_bold"])
-        self.btn_export.pack(fill="x", padx=10, pady=5)
+        ctk.CTkFrame(main_frame, height=1, fg_color=COLORS["border"]).pack(fill="x", pady=5)
 
-
-    def _setup_items_panel(self, parent):
-        # 타이틀 및 요약
-        top_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        top_frame.pack(fill="x", padx=15, pady=15)
+        # 3. 서류 발행 (가로 배치)
+        ctk.CTkLabel(main_frame, text="서류 발행", font=FONTS["header"]).pack(anchor="w", pady=(0, 5))
+        doc_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        doc_frame.pack(fill="x")
         
-        ctk.CTkLabel(top_frame, text="견적 품목 리스트", font=FONTS["header"]).pack(side="left")
-        
-        # 총계 표시
-        summary_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
-        summary_frame.pack(side="right")
-        
-        self.lbl_total_qty = ctk.CTkLabel(summary_frame, text="총 수량: 0", font=FONTS["main_bold"])
-        self.lbl_total_qty.pack(side="left", padx=10)
-        
-        self.lbl_total_amt = ctk.CTkLabel(summary_frame, text="총 합계: 0", font=FONTS["header"], text_color=COLORS["primary"])
-        self.lbl_total_amt.pack(side="left", padx=10)
-
-        # 헤더
-        headers = ["품명", "모델명", "Description", "수량", "단가", "공급가액", "세액", "합계"]
-        widths = [150,150,200,60,100,100,80,100]
-        
-        header_frame = ctk.CTkFrame(parent, height=35, fg_color=COLORS["bg_dark"])
-        header_frame.pack(fill="x", padx=15)
-        
-        for h, w in zip(headers, widths):
-            ctk.CTkLabel(header_frame, text=h, width=w, font=FONTS["main_bold"]).pack(side="left", padx=2)
-            
-        # 스크롤 리스트
-        self.scroll_items = ctk.CTkScrollableFrame(parent, fg_color="transparent")
-        self.scroll_items.pack(fill="both", expand=True, padx=10, pady=5)
-        
-        # 품목 추가 버튼
-        ctk.CTkButton(parent, text="+ 품목 추가", command=self._add_item_row, height=35,
-                      fg_color=COLORS["bg_light"], hover_color=COLORS["bg_light_hover"], 
-                      text_color=COLORS["text"]).pack(fill="x", padx=15, pady=10)
+        ctk.CTkButton(doc_frame, text="📄 견적서 발행 (PDF)", command=self.export_quote, height=30,
+                      fg_color=COLORS["bg_light"], hover_color=COLORS["primary_hover"], 
+                      text_color=COLORS["text"], font=FONTS["main_bold"]).pack(side="left", fill="x", expand=True)
 
     def _create_footer(self, parent):
         footer_frame = ctk.CTkFrame(parent, fg_color="transparent")
         footer_frame.pack(fill="x", pady=(10, 0))
         
+        ctk.CTkButton(footer_frame, text="삭제", command=self.delete, width=100, height=45,
+                      fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"]).pack(side="left")
+                      
         ctk.CTkButton(footer_frame, text="닫기", command=self.destroy, width=100, height=45,
                       fg_color=COLORS["bg_light"], hover_color=COLORS["bg_light_hover"], 
-                      text_color=COLORS["text"]).pack(side="left")
+                      text_color=COLORS["text"]).pack(side="right", padx=(10, 0))
                       
-        if self.copy_mode:
-            btn_text = "복사 등록 (저장)"
-        else:
-            btn_text = "견적 저장" if not self.mgmt_no else "견적 수정 (저장)"
-            
-        ctk.CTkButton(footer_frame, text=btn_text, command=self.save, width=200, height=45,
+        ctk.CTkButton(footer_frame, text="저장", command=self.save, width=200, height=45,
                       fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], 
                       font=FONTS["header"]).pack(side="right")
-        
-        if self.mgmt_no and not self.copy_mode:
-            ctk.CTkButton(footer_frame, text="삭제", command=self.delete, width=100, height=45,
-                          fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"], 
-                          text_color="white").pack(side="right", padx=10)
-
-    # ==========================================================================
-    # 로직 메서드 (기존 유지 및 UI 연동)
-    # ==========================================================================
-    def _on_client_select(self, client_name):
-        if not client_name: return
-
-        df = self.dm.df_clients
-        if client_name not in df["업체명"].values:
-            # Topmost 잠시 해제 (메시지박스가 뒤로 가는 문제 방지)
-            self.attributes("-topmost", False)
-            if messagebox.askyesno("알림", f"'{client_name}'은(는) 등록되지 않은 업체입니다.\n신규 등록하시겠습니까?", parent=self):
-                self.attributes("-topmost", True)
-                def on_client_registered():
-                    self._load_clients()
-                    self.entry_client.set_completion_list(self.dm.df_clients["업체명"].unique().tolist())
-                    # 등록 후 다시 선택 로직 실행 (새로 등록된 업체 정보 로드)
-                    self._on_client_select(client_name)
-                
-                ClientPopup(self, self.dm, on_client_registered, client_name=None)
-            else:
-                self.attributes("-topmost", True)
-            return
-
-        # 헤더 업데이트
-        self.lbl_client_header.configure(text=client_name)
-        
-        row = df[df["업체명"] == client_name]
-        if not row.empty:
-            currency = row.iloc[0].get("통화", "KRW")
-            if currency and str(currency) != "nan":
-                self.combo_currency.set(currency)
-                self.on_currency_change(currency)
-            
-            note = str(row.iloc[0].get("특이사항", "-"))
-            if note == "nan" or not note: note = "-"
-            self.lbl_client_note.configure(text=f"업체 특이사항: {note}")
-
-    def on_type_change(self, type_val): self._calculate_totals()
-
-    def on_currency_change(self, currency):
-        if currency == "KRW":
-            self.entry_tax_rate.delete(0, "end")
-            self.entry_tax_rate.insert(0, "10")
-            self.combo_type.set("내수")
-        else:
-            self.entry_tax_rate.delete(0, "end")
-            self.entry_tax_rate.insert(0, "0")
-            self.combo_type.set("수출")
-        self._calculate_totals()
-
-    def _generate_new_id(self):
-        # 견적 번호 생성 (Q + 날짜)
-        today_str = datetime.now().strftime("%y%m%d")
-        prefix = f"Q{today_str}"
-        
-        df = self.dm.df_data
-        existing_ids = df[df["관리번호"].str.startswith(prefix)]["관리번호"].unique()
-        
-        if len(existing_ids) == 0: seq = 1
-        else:
-            max_seq = 0
-            for eid in existing_ids:
-                try:
-                    parts = eid.split("-")
-                    if len(parts) > 1:
-                        seq_num = int(parts[-1])
-                        if seq_num > max_seq: max_seq = seq_num
-                except: pass
-            seq = max_seq + 1
-            
-        new_id = f"{prefix}-{seq:03d}"
-        self.entry_id.configure(state="normal")
-        self.entry_id.delete(0, "end")
-        self.entry_id.insert(0, new_id)
-        self.entry_id.configure(state="readonly")
-        
-        # 헤더 라벨 업데이트
-        self.lbl_id.configure(text=new_id)
 
     def _add_item_row(self, item_data=None):
-        # BasePopup._add_item_row 호출 (self.scroll_items에 추가됨)
-        # 하지만 BasePopup은 self.scroll_items가 있다고 가정함.
-        # 여기서는 self.scroll_items가 _setup_items_panel에서 생성됨.
+        row_frame = ctk.CTkFrame(self.scroll_items, fg_color="transparent", height=35)
+        row_frame.pack(fill="x", pady=2)
         
-        row_widgets = super()._add_item_row()
-
-        row_widgets["qty"].insert(0, "1")
-        row_widgets["price"].insert(0, "0")
-
-        row_widgets["qty"].bind("<KeyRelease>", lambda e, rw=row_widgets: self.calculate_row(rw))
-        row_widgets["price"].bind("<KeyRelease>", lambda e, w=row_widgets["price"], rw=row_widgets: self.on_price_change(e, w, rw))
-
+        # Widgets
+        w_item = ctk.CTkEntry(row_frame, width=120)
+        w_model = ctk.CTkEntry(row_frame, width=120)
+        w_desc = ctk.CTkEntry(row_frame, width=150)
+        w_qty = ctk.CTkEntry(row_frame, width=50, justify="right")
+        w_price = ctk.CTkEntry(row_frame, width=80, justify="right")
+        w_supply = ctk.CTkEntry(row_frame, width=80, justify="right", state="readonly")
+        w_tax = ctk.CTkEntry(row_frame, width=60, justify="right", state="readonly")
+        w_total = ctk.CTkEntry(row_frame, width=80, justify="right", state="readonly")
+        
+        btn_del = ctk.CTkButton(row_frame, text="X", width=40, fg_color=COLORS["danger"], 
+                                command=lambda: self._remove_item_row(row_frame, row_data_dict))
+        
+        # Pack
+        w_item.pack(side="left", padx=2)
+        w_model.pack(side="left", padx=2)
+        w_desc.pack(side="left", padx=2)
+        w_qty.pack(side="left", padx=2)
+        w_price.pack(side="left", padx=2)
+        w_supply.pack(side="left", padx=2)
+        w_tax.pack(side="left", padx=2)
+        w_total.pack(side="left", padx=2)
+        btn_del.pack(side="left", padx=2)
+        
+        # Data Dict
+        row_data_dict = {
+            "frame": row_frame,
+            "item": w_item, "model": w_model, "desc": w_desc,
+            "qty": w_qty, "price": w_price, 
+            "supply": w_supply, "tax": w_tax, "total": w_total
+        }
+        self.item_rows.append(row_data_dict)
+        
+        # Bindings
+        w_qty.insert(0, "1")
+        w_price.insert(0, "0")
+        
+        w_qty.bind("<KeyRelease>", lambda e: self.calculate_row(row_data_dict))
+        w_price.bind("<KeyRelease>", lambda e: self.on_price_change(e, w_price, row_data_dict))
+        
+        # Load Data if provided
         if item_data is not None:
-            row_widgets["item"].insert(0, str(item_data.get("품목명", "")))
-            row_widgets["model"].insert(0, str(item_data.get("모델명", "")))
-            row_widgets["desc"].insert(0, str(item_data.get("Description", "")))
-            row_widgets["qty"].delete(0, "end"); row_widgets["qty"].insert(0, str(item_data.get("수량", 0)))
+            w_item.insert(0, str(item_data.get("품목명", "")))
+            w_model.insert(0, str(item_data.get("모델명", "")))
+            w_desc.insert(0, str(item_data.get("Description", "")))
+            w_qty.delete(0, "end"); w_qty.insert(0, str(item_data.get("수량", 0)))
             price_val = float(item_data.get("단가", 0))
-            row_widgets["price"].delete(0, "end"); row_widgets["price"].insert(0, f"{int(price_val):,}")
-            self.calculate_row(row_widgets)
+            w_price.delete(0, "end"); w_price.insert(0, f"{int(price_val):,}")
+            self.calculate_row(row_data_dict)
+        else:
+            self.calculate_row(row_data_dict)
+
+    def _remove_item_row(self, frame, row_data):
+        if row_data in self.item_rows:
+            self.item_rows.remove(row_data)
+        frame.destroy()
+        self._calculate_totals()
 
     def on_price_change(self, event, widget, row_data):
         val = widget.get().replace(",", "")
@@ -387,6 +324,50 @@ class QuotePopup(BasePopup):
         self.lbl_total_qty.configure(text=f"총 수량: {total_qty:,.0f}")
         self.lbl_total_amt.configure(text=f"총 합계: {total_amt:,.0f}")
 
+    def on_type_change(self, type_val): self._calculate_totals()
+
+    def on_currency_change(self, currency):
+        if currency == "KRW":
+            self.entry_tax_rate.delete(0, "end")
+            self.entry_tax_rate.insert(0, "10")
+            self.combo_type.set("내수")
+        else:
+            self.entry_tax_rate.delete(0, "end")
+            self.entry_tax_rate.insert(0, "0")
+            self.combo_type.set("수출")
+        self._calculate_totals()
+        
+        # Recalculate all rows
+        for row in self.item_rows: self.calculate_row(row)
+
+    def _on_client_select(self, client_name):
+        if not client_name: return
+
+        df = self.dm.df_clients
+        if client_name not in df["업체명"].values:
+            self.attributes("-topmost", False)
+            if messagebox.askyesno("알림", f"'{client_name}'은(는) 등록되지 않은 업체입니다.\n신규 등록하시겠습니까?", parent=self):
+                self.attributes("-topmost", True)
+                def on_client_registered():
+                    self._load_clients()
+                    self.entry_client.set_completion_list(self.dm.df_clients["업체명"].unique().tolist())
+                    self._on_client_select(client_name)
+                
+                ClientPopup(self, self.dm, on_client_registered, client_name=None)
+            else:
+                self.attributes("-topmost", True)
+            return
+
+        row = df[df["업체명"] == client_name]
+        if not row.empty:
+            currency = row.iloc[0].get("통화", "KRW")
+            if currency and str(currency) != "nan":
+                self.combo_currency.set(currency)
+                self.on_currency_change(currency)
+            note = str(row.iloc[0].get("특이사항", "-"))
+            if note == "nan" or not note: note = "-"
+            self.lbl_client_note.configure(text=f"업체 특이사항: {note}")
+
     def _load_data(self):
         df = self.dm.df_data
         rows = df[df["관리번호"] == self.mgmt_no]
@@ -398,17 +379,13 @@ class QuotePopup(BasePopup):
         self.entry_id.insert(0, str(first["관리번호"]))
         self.entry_id.configure(state="readonly")
         
-        self.lbl_id.configure(text=str(first["관리번호"]))
-        
         date_val = str(first.get("견적일", ""))
-        self.entry_date.delete(0, "end")
-        self.entry_date.insert(0, date_val)
+        self.entry_date.delete(0, "end"); self.entry_date.insert(0, date_val)
 
         self.combo_type.set(str(first.get("구분", "내수")))
         
         client_name = str(first.get("업체명", ""))
-        self.entry_client.delete(0, "end")
-        self.entry_client.insert(0, client_name)
+        self.entry_client.set_value(client_name)
         
         self.combo_currency.set(str(first.get("통화", "KRW")))
         
@@ -417,15 +394,10 @@ class QuotePopup(BasePopup):
         else:
             currency = str(first.get("통화", "KRW"))
             tax_rate = "10" if currency == "KRW" else "0"
-        self.entry_tax_rate.delete(0, "end")
-        self.entry_tax_rate.insert(0, tax_rate)
+        self.entry_tax_rate.delete(0, "end"); self.entry_tax_rate.insert(0, tax_rate)
 
-        self.entry_project.delete(0, "end")
-        self.entry_project.insert(0, str(first.get("프로젝트명", "")))
-        self.lbl_project_header.configure(text=str(first.get("프로젝트명", "")))
-        
-        self.entry_note.delete(0, "end")
-        self.entry_note.insert(0, str(first.get("비고", "")))
+        self.entry_project.delete(0, "end"); self.entry_project.insert(0, str(first.get("프로젝트명", "")))
+        self.entry_note.delete(0, "end"); self.entry_note.insert(0, str(first.get("비고", "")))
         
         current_status = str(first.get("Status", "견적"))
         self.combo_status.set(current_status)
@@ -433,24 +405,17 @@ class QuotePopup(BasePopup):
         self._on_client_select(client_name)
         for _, row in rows.iterrows(): self._add_item_row(row)
 
-    # [신규] 복사된 데이터 로드 메서드
     def _load_copied_data(self):
         df = self.dm.df_data
-        # 원본(copy_src_no) 데이터를 찾음
         rows = df[df["관리번호"] == self.copy_src_no]
         if rows.empty: return
         
         first = rows.iloc[0]
         
-        # ID는 _generate_new_id()에 의해 이미 신규로 생성되어 있으므로 건드리지 않음
-        # 날짜는 오늘 날짜로 유지 (이미 __init__에서 설정됨)
-        # 상태는 '견적'으로 유지 (이미 __init__에서 설정됨)
-
         self.combo_type.set(str(first.get("구분", "내수")))
         
         client_name = str(first.get("업체명", ""))
-        self.entry_client.delete(0, "end")
-        self.entry_client.insert(0, client_name)
+        self.entry_client.set_value(client_name)
         
         self.combo_currency.set(str(first.get("통화", "KRW")))
         
@@ -459,22 +424,16 @@ class QuotePopup(BasePopup):
         else:
             currency = str(first.get("통화", "KRW"))
             tax_rate = "10" if currency == "KRW" else "0"
-        self.entry_tax_rate.delete(0, "end")
-        self.entry_tax_rate.insert(0, tax_rate)
+        self.entry_tax_rate.delete(0, "end"); self.entry_tax_rate.insert(0, tax_rate)
 
-        # 프로젝트명 뒤에 (Copy) 붙이기
         original_proj = str(first.get("프로젝트명", ""))
-        self.entry_project.insert(0, f"{original_proj} (Copy)")
-        self.lbl_project_header.configure(text=f"{original_proj} (Copy)")
+        self.entry_project.delete(0, "end"); self.entry_project.insert(0, f"{original_proj} (Copy)")
         
-        self.entry_note.insert(0, str(first.get("비고", "")))
+        self.entry_note.delete(0, "end"); self.entry_note.insert(0, str(first.get("비고", "")))
         
         self._on_client_select(client_name)
-        
-        # 품목 추가
         for _, row in rows.iterrows(): self._add_item_row(row)
         
-        # 윈도우 타이틀 업데이트
         self.title(f"견적 복사 등록 (원본: {self.copy_src_no}) - Sales Manager")
 
     def save(self):
@@ -501,7 +460,7 @@ class QuotePopup(BasePopup):
             "통화": self.combo_currency.get(),
             "환율": 1, 
             "세율(%)": tax_rate_val,
-            "주문요청사항": "",
+            "주문요청사항": "", # 견적은 주문요청사항 없음
             "비고": self.entry_note.get(),
             "Status": self.combo_status.get(),
             "견적일": self.entry_date.get()
@@ -521,8 +480,6 @@ class QuotePopup(BasePopup):
             new_rows.append(row_data)
 
         def update_logic(dfs):
-            # [수정] 복사 모드일 때도 mgmt_no는 신규이므로 self.mgmt_no 체크 로직 타지 않음 (self.mgmt_no가 None임)
-            # 일반 수정 모드(self.mgmt_no가 있음)일 때만 기존 데이터 삭제 로직 실행
             if self.mgmt_no:
                 mask = dfs["data"]["관리번호"] == self.mgmt_no
                 existing_rows = dfs["data"][mask]
@@ -539,7 +496,6 @@ class QuotePopup(BasePopup):
             new_df = pd.DataFrame(new_rows)
             dfs["data"] = pd.concat([dfs["data"], new_df], ignore_index=True)
             
-            # 액션 로그 메시지 수정
             if self.copy_mode:
                 action = "복사 등록"
                 log_msg = f"견적 복사: [{self.copy_src_no}] -> [{mgmt_no}] / 업체 [{client}]"
@@ -600,7 +556,7 @@ class QuotePopup(BasePopup):
             "client_name": client_name,
             "mgmt_no": self.entry_id.get(),
             "date": self.entry_date.get(),
-            "req_note": "", # 견적엔 주문요청사항 없음
+            "req_note": "",
             "note": self.entry_note.get()
         }
         
@@ -625,10 +581,29 @@ class QuotePopup(BasePopup):
         else:
             messagebox.showerror("실패", result, parent=self)
         self.attributes("-topmost", True)
-    
-    # BasePopup의 미사용 메서드 오버라이드 (빈 구현)
-    def _create_top_frame(self): pass
-    def _create_items_frame(self): pass
-    def _create_bottom_frame(self): pass
-    def _create_action_buttons(self): pass
-    def _create_additional_frames(self): pass
+
+    def _generate_new_id(self):
+        # BasePopup에서 호출
+        today_str = datetime.now().strftime("%y%m%d")
+        prefix = f"Q{today_str}"
+        
+        df = self.dm.df_data
+        existing_ids = df[df["관리번호"].str.startswith(prefix)]["관리번호"].unique()
+        
+        if len(existing_ids) == 0: seq = 1
+        else:
+            max_seq = 0
+            for eid in existing_ids:
+                try:
+                    parts = eid.split("-")
+                    if len(parts) > 1:
+                        seq_num = int(parts[-1])
+                        if seq_num > max_seq: max_seq = seq_num
+                except: pass
+            seq = max_seq + 1
+            
+        new_id = f"{prefix}-{seq:03d}"
+        self.entry_id.configure(state="normal")
+        self.entry_id.delete(0, "end")
+        self.entry_id.insert(0, new_id)
+        self.entry_id.configure(state="readonly")
