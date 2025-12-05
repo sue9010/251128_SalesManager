@@ -8,8 +8,8 @@ class ExportManager:
     def __init__(self):
         pass
 
+    # ... (기존 export_quote_to_pdf, export_order_request_to_pdf, export_pi_to_pdf 메서드는 그대로 유지) ...
     def export_quote_to_pdf(self, client_info, quote_info, items):
-        """견적서 PDF 변환 (기존 코드 유지)"""
         try:
             import win32com.client
             import pythoncom
@@ -107,7 +107,6 @@ class ExportManager:
                 except: pass
 
     def export_order_request_to_pdf(self, client_info, order_info, items):
-        """출고요청서 PDF 변환 (기존 코드 유지)"""
         try:
             import win32com.client
             import pythoncom
@@ -205,7 +204,6 @@ class ExportManager:
                 except: pass
 
     def export_pi_to_pdf(self, client_info, order_info, items):
-        """PI 발행 (기존 코드 유지)"""
         try:
             import win32com.client
             import pythoncom
@@ -312,9 +310,6 @@ class ExportManager:
                 except: pass
 
     def export_ci_to_pdf(self, client_info, order_info, items):
-        """
-        CI.xlsx 양식에 데이터를 채우고 바탕화면과 서버 폴더에 PDF로 저장합니다.
-        """
         try:
             import win32com.client
             import pythoncom
@@ -334,36 +329,36 @@ class ExportManager:
             wb = openpyxl.load_workbook(template_path)
             ws = wb.active
 
-            # 고객 정보
-            ws["A9"] = order_info.get('client_name', '')
-            ws["A10"] = str(client_info.get("주소", ""))
-            ws["A12"] = str(client_info.get("전화번호", ""))
-            ws["A13"] = str(client_info.get("담당자", ""))
-            ws["E13"] = str(client_info.get("국가", ""))
+            # 안전한 값 쓰기 함수 (병합 셀 처리)
+            def safe_write(cell_addr, val):
+                try:
+                    for merged_range in ws.merged_cells.ranges:
+                        if cell_addr in merged_range:
+                            top_left_cell = ws.cell(row=merged_range.min_row, column=merged_range.min_col)
+                            top_left_cell.value = val
+                            return
+                    ws[cell_addr] = val
+                except: pass
 
-            # 주문 정보
-            ws["E9"] = order_info.get('mgmt_no', '')
-            ws["E11"] = order_info.get('date', '')
+            safe_write("A9", order_info.get('client_name', ''))
+            safe_write("A10", str(client_info.get("주소", "")))
+            safe_write("A12", str(client_info.get("전화번호", "")))
+            safe_write("A13", str(client_info.get("담당자", "")))
+            safe_write("E13", str(client_info.get("국가", "")))
 
-            # [수정] 발주서 번호 일괄 처리
-            # items에서 모든 발주서 번호를 수집하여 쉼표로 연결
+            safe_write("E9", order_info.get('mgmt_no', ''))
+            safe_write("E11", order_info.get('date', ''))
+
             po_list = []
-            
-            # 우선 order_info에 단일 po_no가 있다면 추가
             if order_info.get('po_no'):
                 po_list.append(str(order_info.get('po_no')))
-            
-            # items 내의 po_no들도 확인
             for item in items:
                 p = str(item.get('po_no', '')).strip()
                 if p and p != "nan" and p not in po_list:
                     po_list.append(p)
-            
-            # 중복 제거 및 연결
-            final_po_str = ", ".join(list(dict.fromkeys(po_list))) # 순서 유지하며 중복 제거
-            ws["E10"] = final_po_str
+            final_po_str = ", ".join(list(dict.fromkeys(po_list))) 
+            safe_write("E10", final_po_str)
 
-            # 품목 정보 & 시리얼 번호 수집
             serial_list = []
             
             start_row = 16
@@ -371,24 +366,21 @@ class ExportManager:
                 if i >= 10: break
                 r_idx = start_row + i
                 
-                ws[f"A{r_idx}"] = item.get('model', '')
-                ws[f"B{r_idx}"] = item.get('desc', '')
-                ws[f"C{r_idx}"] = item.get('qty', 0)
-                ws[f"D{r_idx}"] = item.get('currency', '')
-                ws[f"E{r_idx}"] = item.get('price', 0)
-                ws[f"H{r_idx}"] = item.get('currency', '')
-                ws[f"I{r_idx}"] = item.get('amount', 0)
+                safe_write(f"A{r_idx}", item.get('model', ''))
+                safe_write(f"B{r_idx}", item.get('desc', ''))
+                safe_write(f"C{r_idx}", item.get('qty', 0))
+                safe_write(f"D{r_idx}", item.get('currency', ''))
+                safe_write(f"E{r_idx}", item.get('price', 0))
+                safe_write(f"H{r_idx}", item.get('currency', ''))
+                safe_write(f"I{r_idx}", item.get('amount', 0))
                 
-                # 시리얼 번호 수집
                 sn = str(item.get('serial', '')).strip()
                 if sn and sn != "-" and sn != "nan":
                     serial_list.append(sn)
 
-            # [수정] A32에 시리얼 번호 목록 입력
             if serial_list:
-                ws["A32"] = ", ".join(serial_list)
+                safe_write("A32", ", ".join(serial_list))
 
-            # 경로 설정
             desktop = os.path.join(os.path.expanduser("~"), "Desktop")
             server_ci_folder = os.path.join(Config.DEFAULT_ATTACHMENT_ROOT, "Commercial Invoice")
             
@@ -408,7 +400,6 @@ class ExportManager:
             wb.save(temp_xlsx_path)
             wb.close()
 
-            # PDF 변환
             pythoncom.CoInitialize()
             excel = win32com.client.Dispatch("Excel.Application")
             excel.Visible = False
@@ -428,6 +419,179 @@ class ExportManager:
             
             copied_to_server = False
             if os.path.exists(server_ci_folder):
+                try:
+                    shutil.copy2(desktop_pdf_path, server_pdf_path)
+                    copied_to_server = True
+                except Exception as e:
+                    print(f"서버 복사 실패: {e}")
+
+            msg = f"바탕화면에 저장되었습니다.\n{desktop_pdf_path}"
+            if copied_to_server:
+                msg += f"\n\n서버에도 저장되었습니다.\n{server_pdf_path}"
+
+            return True, msg
+
+        except Exception as e:
+            return False, f"오류 발생: {str(e)}"
+            
+        finally:
+            if wb_opened:
+                try: wb_opened.Close(False)
+                except: pass
+            if excel:
+                try: excel.Quit(); del excel
+                except: pass
+            if temp_xlsx_path and os.path.exists(temp_xlsx_path):
+                try: os.remove(temp_xlsx_path)
+                except: pass
+
+    # [수정] PL 발행 메서드 (새로운 좌표 매핑 적용)
+    def export_pl_to_pdf(self, client_info, order_info, items):
+        """
+        PL.xlsx 양식에 데이터를 채우고 바탕화면과 서버 폴더에 PDF로 저장합니다.
+        """
+        try:
+            import win32com.client
+            import pythoncom
+        except ImportError:
+            return False, "PDF 변환을 위해 pywin32 라이브러리가 필요합니다."
+
+        temp_xlsx_path = None
+        excel = None
+        wb_opened = None
+
+        try:
+            template_path = os.path.join(Config.DEFAULT_ATTACHMENT_ROOT, "forms", "PL.xlsx")
+            
+            if not os.path.exists(template_path):
+                return False, f"PL 양식 파일을 찾을 수 없습니다.\n경로: {template_path}"
+
+            wb = openpyxl.load_workbook(template_path)
+            ws = wb.active
+
+            # 안전한 값 쓰기 함수 (병합 셀 처리)
+            def safe_write(cell_addr, val):
+                try:
+                    for merged_range in ws.merged_cells.ranges:
+                        if cell_addr in merged_range:
+                            top_left_cell = ws.cell(row=merged_range.min_row, column=merged_range.min_col)
+                            top_left_cell.value = val
+                            return
+                    ws[cell_addr] = val
+                except: pass
+
+            # 1. 기본 정보
+            safe_write("A9", order_info.get('client_name', ''))
+            safe_write("A10", str(client_info.get("주소", "")))
+            safe_write("A12", str(client_info.get("전화번호", "")))
+            safe_write("A13", str(client_info.get("담당자", "")))
+            
+            safe_write("F9", order_info.get('mgmt_no', '')) # F9: 출고번호
+            safe_write("F11", order_info.get('date', ''))   # F11: 출고일
+            safe_write("F13", str(client_info.get("국가", ""))) # F13: 국가
+
+            # F10: 발주서 번호 일괄 처리
+            po_list = []
+            if order_info.get('po_no'): po_list.append(str(order_info.get('po_no')))
+            for item in items:
+                p = str(item.get('po_no', '')).strip()
+                if p and p != "nan" and p not in po_list:
+                    po_list.append(p)
+            final_po_str = ", ".join(list(dict.fromkeys(po_list))) 
+            safe_write("F10", final_po_str)
+
+            # 2. 품목 및 패킹 정보 (A16~I25)
+            serial_list = []
+            total_net_weight = 0.0
+            total_gross_weight = 0.0
+            carton_count = 0
+
+            start_row = 16
+            for i, item in enumerate(items):
+                if i >= 10: break
+                r_idx = start_row + i
+                
+                safe_write(f"A{r_idx}", item.get('c_no', ''))
+                safe_write(f"B{r_idx}", item.get('desc', ''))
+                safe_write(f"C{r_idx}", item.get('qty', 0))
+                safe_write(f"D{r_idx}", item.get('unit', 'SET'))
+                
+                nw = item.get('net_weight', 0)
+                gw = item.get('gross_weight', 0)
+                
+                try: nw_float = float(str(nw).replace("kg","").strip())
+                except: nw_float = 0
+                try: gw_float = float(str(gw).replace("kg","").strip())
+                except: gw_float = 0
+                
+                total_net_weight += nw_float
+                total_gross_weight += gw_float
+                
+                # C/No가 있으면 카톤 수 증가 (단순히 행 개수로 파악할 수도 있음)
+                if item.get('c_no'): carton_count += 1
+                
+                safe_write(f"E{r_idx}", nw)
+                safe_write(f"F{r_idx}", gw)
+                
+                safe_write(f"G{r_idx}", item.get('size_l', ''))
+                safe_write(f"H{r_idx}", item.get('size_w', ''))
+                safe_write(f"I{r_idx}", item.get('size_h', ''))
+                
+                # 시리얼 번호 수집
+                sn = str(item.get('serial', '')).strip()
+                if sn and sn != "-" and sn != "nan":
+                    serial_list.append(sn)
+
+            # 3. 합계 (Row 26)
+            if carton_count == 0 and items: carton_count = len(items) # C/No 없으면 아이템 수로 대체
+            safe_write("A26", f"{carton_count} Cartons")
+            safe_write("E26", f"{total_net_weight:.2f} kgs")
+            safe_write("F26", f"{total_gross_weight:.2f} kgs")
+
+            # 4. Notes 및 시리얼 번호
+            safe_write("A29", order_info.get('notes', ''))
+            if serial_list:
+                safe_write("A36", ", ".join(serial_list))
+
+            # 5. 저장 및 변환
+            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+            server_pl_folder = os.path.join(Config.DEFAULT_ATTACHMENT_ROOT, "Packing List")
+            
+            if not os.path.exists(server_pl_folder):
+                try: os.makedirs(server_pl_folder)
+                except: pass
+
+            client_safe = "".join([c for c in order_info['client_name'] if c.isalnum() or c in (' ', '_', '-')]).strip()
+            pdf_filename = f"PL_{client_safe}_{order_info['mgmt_no']}.pdf"
+            
+            temp_xlsx_name = f"temp_PL_{order_info['mgmt_no']}.xlsx"
+            temp_xlsx_path = os.path.join(desktop, temp_xlsx_name)
+            
+            desktop_pdf_path = os.path.join(desktop, pdf_filename)
+            server_pdf_path = os.path.join(server_pl_folder, pdf_filename)
+
+            wb.save(temp_xlsx_path)
+            wb.close()
+
+            pythoncom.CoInitialize()
+            excel = win32com.client.Dispatch("Excel.Application")
+            excel.Visible = False
+            excel.DisplayAlerts = False
+            excel.ScreenUpdating = False
+
+            abs_xlsx_path = os.path.abspath(temp_xlsx_path)
+            wb_opened = excel.Workbooks.Open(abs_xlsx_path)
+            
+            try:
+                wb_opened.ExportAsFixedFormat(0, desktop_pdf_path)
+            except Exception as e:
+                return False, f"PDF 변환 실패: {e}"
+            
+            wb_opened.Close(SaveChanges=False)
+            wb_opened = None
+            
+            copied_to_server = False
+            if os.path.exists(server_pl_folder):
                 try:
                     shutil.copy2(desktop_pdf_path, server_pdf_path)
                     copied_to_server = True

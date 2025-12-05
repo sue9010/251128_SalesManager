@@ -34,3 +34,6 @@ class PopupManager:
 
     def open_complete_popup(self, mgmt_no):
         win = CompletePopup(self.parent, self.dm, self.refresh_callback, mgmt_no)
+
+    def open_packing_list_popup(self, mgmt_no):
+        win = PackingListPopup(self.parent, self.dm, self.refresh_callback, mgmt_no)

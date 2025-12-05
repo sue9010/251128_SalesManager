@@ -11,10 +11,12 @@ import pandas as pd
 
 from config import Config
 from popups.base_popup import BasePopup
+from popups.packing_list_popup import PackingListPopup # [신규] import
 from styles import COLORS, FONTS
 from export_manager import ExportManager 
 
 class DeliveryPopup(BasePopup):
+    # ... (기존 __init__ 등 코드는 유지) ...
     def __init__(self, parent, data_manager, refresh_callback, mgmt_nos):
         if isinstance(mgmt_nos, list):
             self.mgmt_nos = mgmt_nos
@@ -388,7 +390,6 @@ class DeliveryPopup(BasePopup):
             return
         
         main_mgmt_no = self.mgmt_nos[0]
-        # Data 시트에서 원본 데이터 가져오기 (단, 참조용)
         rows = self.dm.df_data[self.dm.df_data["관리번호"].isin(self.mgmt_nos)]
         if rows.empty: return
         first = rows.iloc[0]
@@ -400,7 +401,6 @@ class DeliveryPopup(BasePopup):
             "po_no": first.get("발주서번호", ""), 
         }
         
-        # [수정] 화면에 로드된 item_widgets_map을 순회하며 '출고 수량' 적용
         items = []
         for index, item_info in self.item_widgets_map.items():
             entry_widget = item_info["entry"]
@@ -411,25 +411,20 @@ class DeliveryPopup(BasePopup):
             except:
                 deliver_qty = 0
             
-            # 출고 수량이 0인 항목은 CI에서 제외
-            if deliver_qty <= 0:
-                continue
+            if deliver_qty <= 0: continue
                 
-            # 단가 및 금액 계산
-            try:
-                price = float(str(row_data.get("단가", 0)).replace(",", ""))
-            except:
-                price = 0
+            try: price = float(str(row_data.get("단가", 0)).replace(",", ""))
+            except: price = 0
                 
             amount = deliver_qty * price
             
             items.append({
                 "model": row_data.get("모델명", ""),
                 "desc": row_data.get("Description", ""),
-                "qty": deliver_qty, # [중요] 사용자가 입력한 출고 수량 사용
+                "qty": deliver_qty, 
                 "currency": row_data.get("통화", ""),
                 "price": price,
-                "amount": amount, # [중요] 재계산된 금액 사용
+                "amount": amount, 
                 "po_no": row_data.get("발주서번호", ""),
                 "serial": str(row_data.get("시리얼번호", "-"))
             })
@@ -451,10 +446,88 @@ class DeliveryPopup(BasePopup):
             messagebox.showerror("실패", result, parent=self)
         self.attributes("-topmost", True)
 
+    # [NEW] PL 발행 기능 구현 (PackingListPopup 연결)
     def export_pl(self):
-        self.attributes("-topmost", False)
-        messagebox.showinfo("준비 중", "PL(Packing List) 발행 기능은 준비 중입니다.", parent=self)
-        self.attributes("-topmost", True)
+        client_name = self.entry_client.get()
+        if not client_name:
+            self.attributes("-topmost", False)
+            messagebox.showwarning("경고", "고객사를 선택해주세요.", parent=self)
+            self.attributes("-topmost", True)
+            return
+
+        client_row = self.dm.df_clients[self.dm.df_clients["업체명"] == client_name]
+        if client_row.empty:
+            self.attributes("-topmost", False)
+            messagebox.showerror("오류", "고객 정보를 찾을 수 없습니다.", parent=self)
+            self.attributes("-topmost", True)
+            return
+        
+        # 품목 정보 수집 (출고 수량이 > 0인 항목만)
+        items = []
+        for index, item_info in self.item_widgets_map.items():
+            entry_widget = item_info["entry"]
+            row_data = item_info["row_data"]
+            
+            try:
+                deliver_qty = float(entry_widget.get().replace(",", ""))
+            except:
+                deliver_qty = 0
+            
+            if deliver_qty <= 0: continue
+            
+            items.append({
+                "model": row_data.get("모델명", ""),
+                "desc": row_data.get("Description", ""),
+                "qty": deliver_qty,
+                "po_no": row_data.get("발주서번호", ""),
+                "serial": str(row_data.get("시리얼번호", "-"))
+            })
+
+        if not items:
+            self.attributes("-topmost", False)
+            messagebox.showwarning("경고", "출고 수량이 입력된 항목이 없습니다.", parent=self)
+            self.attributes("-topmost", True)
+            return
+
+        initial_data = {
+            "client_name": client_name,
+            "mgmt_no": self.current_delivery_no,
+            "date": self.entry_delivery_date.get(),
+            "items": items
+        }
+
+        # 콜백 함수: PackingListPopup에서 발행 버튼 누르면 실행됨
+        def on_pl_confirm(pl_items, notes):
+            # ExportManager 호출
+            # pl_items에는 PackingListPopup에서 입력한 무게/크기 정보가 포함됨
+            
+            # po_no도 order_info에 포함 (첫번째 아이템 기준 or items에서 취합)
+            # 여기서는 export_pl_to_pdf 내부에서 items의 po_no를 취합하도록 되어있으므로
+            # order_info에는 대표 po_no를 넘김
+            first_po = items[0].get("po_no", "") if items else ""
+            
+            order_info = {
+                "client_name": client_name,
+                "mgmt_no": self.current_delivery_no,
+                "date": self.entry_delivery_date.get(),
+                "po_no": first_po,
+                "notes": notes
+            }
+            
+            success, result = self.export_manager.export_pl_to_pdf(
+                client_row.iloc[0], order_info, pl_items
+            )
+            
+            self.attributes("-topmost", False)
+            if success:
+                messagebox.showinfo("성공", f"PL이 생성되었습니다.\n{result}", parent=self)
+            else:
+                messagebox.showerror("실패", result, parent=self)
+            self.attributes("-topmost", True)
+
+        # PackingListPopup 열기
+        # self를 parent로 지정하여 모달처럼 동작하게 함
+        PackingListPopup(self, self.dm, on_pl_confirm, initial_data)
 
     def save(self):
         delivery_date = self.entry_delivery_date.get()
