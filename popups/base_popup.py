@@ -3,12 +3,8 @@ from datetime import datetime
 from tkinter import messagebox
 
 import customtkinter as ctk
-
 from styles import COLORS, FONT_FAMILY, FONTS
-
-
-
-
+from popups.client_popup import ClientPopup
 
 class BasePopup(ctk.CTkToplevel):
     def __init__(self, parent, data_manager, refresh_callback, popup_title="Popup", mgmt_no=None):
@@ -166,10 +162,50 @@ class BasePopup(ctk.CTkToplevel):
                 entry_widget.delete(0, "end")
                 if hasattr(self, "full_paths") and col_name in self.full_paths: 
                     del self.full_paths[col_name]
-        else:
-            entry_widget.delete(0, "end")
             if hasattr(self, "full_paths") and col_name in self.full_paths: 
                 del self.full_paths[col_name]
+
+    # ==========================================================================
+    # Client Selection Helper
+    # ==========================================================================
+    def _on_client_select(self, client_name):
+        """Common logic for selecting a client."""
+        if not client_name: return
+
+        df = self.dm.df_clients
+        if client_name not in df["업체명"].values:
+            self.attributes("-topmost", False)
+            if messagebox.askyesno("알림", f"'{client_name}'은(는) 등록되지 않은 업체입니다.\n신규 등록하시겠습니까?", parent=self):
+                self.attributes("-topmost", True)
+                def on_client_registered():
+                    self._load_clients()
+                    if hasattr(self, "entry_client"):
+                        self.entry_client.set_completion_list(self.dm.df_clients["업체명"].unique().tolist())
+                    self._on_client_select(client_name)
+                
+                ClientPopup(self, self.dm, on_client_registered, client_name=None)
+            else:
+                self.attributes("-topmost", True)
+            return
+
+        row = df[df["업체명"] == client_name]
+        if not row.empty:
+            # Handle currency if combo_currency exists
+            currency = row.iloc[0].get("통화", "KRW")
+            if hasattr(self, "combo_currency") and hasattr(self, "on_currency_change"):
+                if currency and str(currency) != "nan":
+                    self.combo_currency.set(currency)
+                    self.on_currency_change(currency)
+            
+            # Handle client note if lbl_client_note exists
+            note = str(row.iloc[0].get("특이사항", "-"))
+            if note == "nan" or not note: note = "-"
+            if hasattr(self, "lbl_client_note"):
+                self.lbl_client_note.configure(text=f"업체 특이사항: {note}")
+
+    def _load_clients(self):
+        """Reload client data if needed. Can be overridden or used as is."""
+        pass
 
     # ==========================================================================
     # Item List Helpers
@@ -215,6 +251,30 @@ class BasePopup(ctk.CTkToplevel):
             "qty": e_qty, "price": e_price, "supply": e_supply, "tax": e_tax, "total": e_total
         }
         self.item_rows.append(row_widgets)
+        
+        # Default Values & Bindings
+        e_qty.insert(0, "1")
+        e_price.insert(0, "0")
+        
+        e_qty.bind("<KeyRelease>", lambda e: self.calculate_row(row_widgets))
+        e_price.bind("<KeyRelease>", lambda e: self.on_price_change(e, e_price, row_widgets))
+        
+        # Load Data if provided
+        if item_data is not None:
+            e_item.insert(0, str(item_data.get("품목명", "")))
+            e_model.insert(0, str(item_data.get("모델명", "")))
+            e_desc.insert(0, str(item_data.get("Description", "")))
+            
+            q_val = item_data.get("수량", 0)
+            e_qty.delete(0, "end"); e_qty.insert(0, str(q_val))
+            
+            price_val = float(item_data.get("단가", 0))
+            e_price.delete(0, "end"); e_price.insert(0, f"{int(price_val):,}")
+            
+            self.calculate_row(row_widgets)
+        else:
+            self.calculate_row(row_widgets)
+            
         return row_widgets
 
     def _delete_item_row(self, frame):
@@ -226,9 +286,60 @@ class BasePopup(ctk.CTkToplevel):
         frame.destroy()
         self._calculate_totals() # 총계 재계산
 
+    # ==========================================================================
+    # Item Calculation Logic
+    # ==========================================================================
+    def on_price_change(self, event, widget, row_data):
+        val = widget.get().replace(",", "")
+        if val.isdigit():
+            formatted = f"{int(val):,}"
+            if widget.get() != formatted:
+                widget.delete(0, "end")
+                widget.insert(0, formatted)
+        self.calculate_row(row_data)
+
+    def calculate_row(self, row_data):
+        try:
+            qty = float(row_data["qty"].get().strip().replace(",","") or 0)
+            price = float(row_data["price"].get().strip().replace(",","") or 0)
+            supply = qty * price
+            
+            tax_rate = 0
+            if hasattr(self, "entry_tax_rate"):
+                try: tax_rate = float(self.entry_tax_rate.get().strip() or 0)
+                except: tax_rate = 0
+            
+            tax = supply * (tax_rate / 100)
+            total = supply + tax
+            
+            def update_entry(entry, val):
+                entry.configure(state="normal")
+                entry.delete(0, "end")
+                entry.insert(0, f"{val:,.0f}")
+                entry.configure(state="readonly")
+
+            update_entry(row_data["supply"], supply)
+            update_entry(row_data["tax"], tax)
+            update_entry(row_data["total"], total)
+        except ValueError: pass
+        self._calculate_totals()
+
     def _calculate_totals(self):
-        """총계를 계산합니다. 하위 클래스에서 오버라이드하여 사용합니다."""
-        pass
+        """Generic total calculation. Updates lbl_total_qty and lbl_total_amt if they exist."""
+        total_qty = 0
+        total_amt = 0
+        for row in self.item_rows:
+            try:
+                q = float(row["qty"].get().replace(",",""))
+                t = float(row["total"].get().replace(",",""))
+                total_qty += q
+                total_amt += t
+            except: pass
+        
+        if hasattr(self, "lbl_total_qty"):
+            self.lbl_total_qty.configure(text=f"총 수량: {total_qty:,.0f}")
+        if hasattr(self, "lbl_total_amt"):
+            self.lbl_total_amt.configure(text=f"총 합계: {total_amt:,.0f}")
 
     # --- Abstract Methods (하위 클래스에서 반드시 구현해야 할 메서드) ---
 

@@ -7,7 +7,7 @@ import pandas as pd
 from popups.base_popup import BasePopup
 from styles import COLORS, FONTS
 from export_manager import ExportManager
-from popups.client_popup import ClientPopup
+# ClientPopup import removed as it is now in base_popup
 
 class QuotePopup(BasePopup):
     def __init__(self, parent, data_manager, refresh_callback, mgmt_no=None, copy_mode=False):
@@ -176,111 +176,6 @@ class QuotePopup(BasePopup):
                       text_color=COLORS["text"], font=FONTS["main_bold"]).pack(side="left", fill="x", expand=True)
 
 
-    def _add_item_row(self, item_data=None):
-        row_frame = ctk.CTkFrame(self.scroll_items, fg_color="transparent", height=35)
-        row_frame.pack(fill="x", pady=2)
-        
-        # Widgets
-        w_item = ctk.CTkEntry(row_frame, width=120)
-        w_model = ctk.CTkEntry(row_frame, width=120)
-        w_desc = ctk.CTkEntry(row_frame, width=150)
-        w_qty = ctk.CTkEntry(row_frame, width=50, justify="right")
-        w_price = ctk.CTkEntry(row_frame, width=80, justify="right")
-        w_supply = ctk.CTkEntry(row_frame, width=80, justify="right", state="readonly")
-        w_tax = ctk.CTkEntry(row_frame, width=60, justify="right", state="readonly")
-        w_total = ctk.CTkEntry(row_frame, width=80, justify="right", state="readonly")
-        
-        btn_del = ctk.CTkButton(row_frame, text="X", width=40, fg_color=COLORS["danger"], 
-                                command=lambda: self._remove_item_row(row_frame, row_data_dict))
-        
-        # Pack
-        w_item.pack(side="left", padx=2)
-        w_model.pack(side="left", padx=2)
-        w_desc.pack(side="left", padx=2)
-        w_qty.pack(side="left", padx=2)
-        w_price.pack(side="left", padx=2)
-        w_supply.pack(side="left", padx=2)
-        w_tax.pack(side="left", padx=2)
-        w_total.pack(side="left", padx=2)
-        btn_del.pack(side="left", padx=2)
-        
-        # Data Dict
-        row_data_dict = {
-            "frame": row_frame,
-            "item": w_item, "model": w_model, "desc": w_desc,
-            "qty": w_qty, "price": w_price, 
-            "supply": w_supply, "tax": w_tax, "total": w_total
-        }
-        self.item_rows.append(row_data_dict)
-        
-        # Bindings
-        w_qty.insert(0, "1")
-        w_price.insert(0, "0")
-        
-        w_qty.bind("<KeyRelease>", lambda e: self.calculate_row(row_data_dict))
-        w_price.bind("<KeyRelease>", lambda e: self.on_price_change(e, w_price, row_data_dict))
-        
-        # Load Data if provided
-        if item_data is not None:
-            w_item.insert(0, str(item_data.get("품목명", "")))
-            w_model.insert(0, str(item_data.get("모델명", "")))
-            w_desc.insert(0, str(item_data.get("Description", "")))
-            w_qty.delete(0, "end"); w_qty.insert(0, str(item_data.get("수량", 0)))
-            price_val = float(item_data.get("단가", 0))
-            w_price.delete(0, "end"); w_price.insert(0, f"{int(price_val):,}")
-            self.calculate_row(row_data_dict)
-        else:
-            self.calculate_row(row_data_dict)
-
-    def _remove_item_row(self, frame, row_data):
-        if row_data in self.item_rows:
-            self.item_rows.remove(row_data)
-        frame.destroy()
-        self._calculate_totals()
-
-    def on_price_change(self, event, widget, row_data):
-        val = widget.get().replace(",", "")
-        if val.isdigit():
-            formatted = f"{int(val):,}"
-            if widget.get() != formatted:
-                widget.delete(0, "end")
-                widget.insert(0, formatted)
-        self.calculate_row(row_data)
-
-    def calculate_row(self, row_data):
-        try:
-            qty = float(row_data["qty"].get().strip().replace(",","") or 0)
-            price = float(row_data["price"].get().strip().replace(",","") or 0)
-            supply = qty * price
-            try: tax_rate = float(self.entry_tax_rate.get().strip() or 0)
-            except: tax_rate = 0
-            tax = supply * (tax_rate / 100)
-            total = supply + tax
-            
-            def update_entry(entry, val):
-                entry.configure(state="normal")
-                entry.delete(0, "end")
-                entry.insert(0, f"{val:,.0f}")
-                entry.configure(state="readonly")
-
-            update_entry(row_data["supply"], supply)
-            update_entry(row_data["tax"], tax)
-            update_entry(row_data["total"], total)
-        except ValueError: pass
-        self._calculate_totals()
-
-    def _calculate_totals(self):
-        total_qty = 0
-        total_amt = 0
-        for row in self.item_rows:
-            try:
-                q = float(row["qty"].get().replace(",",""))
-                t = float(row["total"].get().replace(",",""))
-                total_qty += q
-                total_amt += t
-            except: pass
-        self.lbl_total_qty.configure(text=f"총 수량: {total_qty:,.0f}")
-        self.lbl_total_amt.configure(text=f"총 합계: {total_amt:,.0f}")
 
     def on_type_change(self, type_val): self._calculate_totals()
 
@@ -298,33 +193,6 @@ class QuotePopup(BasePopup):
         # Recalculate all rows
         for row in self.item_rows: self.calculate_row(row)
 
-    def _on_client_select(self, client_name):
-        if not client_name: return
-
-        df = self.dm.df_clients
-        if client_name not in df["업체명"].values:
-            self.attributes("-topmost", False)
-            if messagebox.askyesno("알림", f"'{client_name}'은(는) 등록되지 않은 업체입니다.\n신규 등록하시겠습니까?", parent=self):
-                self.attributes("-topmost", True)
-                def on_client_registered():
-                    self._load_clients()
-                    self.entry_client.set_completion_list(self.dm.df_clients["업체명"].unique().tolist())
-                    self._on_client_select(client_name)
-                
-                ClientPopup(self, self.dm, on_client_registered, client_name=None)
-            else:
-                self.attributes("-topmost", True)
-            return
-
-        row = df[df["업체명"] == client_name]
-        if not row.empty:
-            currency = row.iloc[0].get("통화", "KRW")
-            if currency and str(currency) != "nan":
-                self.combo_currency.set(currency)
-                self.on_currency_change(currency)
-            note = str(row.iloc[0].get("특이사항", "-"))
-            if note == "nan" or not note: note = "-"
-            self.lbl_client_note.configure(text=f"업체 특이사항: {note}")
 
     def _load_data(self):
         df = self.dm.df_data
