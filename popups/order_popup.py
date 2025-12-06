@@ -347,6 +347,45 @@ class OrderPopup(BasePopup):
             })
             new_rows.append(row_data)
 
+        def update_logic(dfs):
+            if self.mgmt_no:
+                mask = dfs["data"]["관리번호"] == self.mgmt_no
+                existing_rows = dfs["data"][mask]
+                if not existing_rows.empty:
+                    first_exist = existing_rows.iloc[0]
+                    # Preserve columns that are NOT edited in this popup but might exist
+                    preserve_cols = ["출고예정일", "출고일", "입금완료일", 
+                                     "세금계산서발행일", "계산서번호", "수출신고번호"]
+                    for row in new_rows:
+                        for col in preserve_cols:
+                            row[col] = first_exist.get(col, "-")
+                        
+                dfs["data"] = dfs["data"][~mask]
+            
+            new_df = pd.DataFrame(new_rows)
+            dfs["data"] = pd.concat([dfs["data"], new_df], ignore_index=True)
+            
+            if self.copy_mode:
+                action = "복사 등록"
+                log_msg = f"주문 복사: [{self.copy_src_no}] -> [{mgmt_no}] / 업체 [{client}]"
+            else:
+                action = "수정" if self.mgmt_no else "등록"
+                log_msg = f"주문 {action}: 번호 [{mgmt_no}] / 업체 [{client}]"
+                
+            new_log = self.dm._create_log_entry(f"주문 {action}", log_msg)
+            dfs["log"] = pd.concat([dfs["log"], pd.DataFrame([new_log])], ignore_index=True)
+            
+            return True, ""
+
+        success, msg = self.dm._execute_transaction(update_logic)
+        
+        if success:
+            messagebox.showinfo("완료", "저장되었습니다.", parent=self)
+            self.refresh_callback()
+            self.destroy()
+        else:
+            messagebox.showerror("실패", msg, parent=self)
+
 
     # BasePopup 추상 메서드 구현 (사용 안함)
     def _generate_new_id(self): 
